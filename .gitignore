@@ -2,3 +2,6 @@ Saved/
 .playwright-cli/
 Images/
 __pycache__/
+node_modules/
+dist/
+.wrangler/

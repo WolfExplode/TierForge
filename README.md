@@ -24,6 +24,26 @@ Images/tiermaker/       downloaded TierMaker images
 Use `npm run serve -- --no-browser` to avoid opening a browser, or
 `npm run serve -- --port 9000` to choose another port.
 
+## Deploy to Cloudflare Workers
+
+The hosted build uses Cloudflare Workers Static Assets. Boards are kept in that browser's
+`localStorage`; the local Node runtime continues to use files in `Saved/`. Because browser storage
+is specific to a browser and device, export important boards before clearing site data or moving
+devices.
+
+```powershell
+npm install
+npm run deploy
+```
+
+For a Git-connected Cloudflare Workers build, use:
+
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+
+No environment variables, secrets, or Cloudflare resource bindings are required. Run
+`npm run dev` to preview the Worker locally.
+
 ## Importing
 
 Open **Import**, paste a TierMaker `/list/` or `/create/` URL, and select how images should be kept:

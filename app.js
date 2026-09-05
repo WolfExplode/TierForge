@@ -757,45 +757,99 @@ async function addFiles(files){ if(!files.length)return; snapshot();
   persist(); render(); toast(`Added ${files.length} image${files.length===1?'':'s'}`); }
 
 /* ============================ PERSISTENCE ============================
-   Boards are JSON files in this folder's Saved/ directory, read and written
-   by the local Node runtime (npm run serve / TierForge.cmd)—not
-   the browser's localStorage. Without the runtime running, nothing persists
-   between reloads; warnNoHelper() says so once. */
+   The local Node runtime stores boards as files. A deployed/static copy falls
+   back to localStorage so the app remains useful without server-side state. */
 const AUTOSAVE='_autosave';
-let saveTimer=null, warnedNoHelper=false;
+const BROWSER_BOARD_PREFIX='tierforge:board:';
+let saveTimer=null, warnedNoStorage=false;
+const hasBrowserStorage=(()=>{
+  try{ const key=BROWSER_BOARD_PREFIX+'__probe'; localStorage.setItem(key,'1');
+    localStorage.removeItem(key); return true; }
+  catch(e){ return false; }
+})();
+function browserBoardKey(name){ return BROWSER_BOARD_PREFIX+encodeURIComponent(name); }
+async function storeBoard(name,board){
+  if(helperBase){
+    try{ return (await fetch(helperBase+'/boards/'+encodeURIComponent(name),{
+      method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(board)})).ok; }
+    catch(e){ return false; }
+  }
+  if(!hasBrowserStorage)return false;
+  try{ localStorage.setItem(browserBoardKey(name),JSON.stringify({mtime:Date.now(),board})); return true; }
+  catch(e){ return false; }
+}
+async function loadStoredBoard(name){
+  if(helperBase){
+    const r=await fetch(helperBase+'/boards/'+encodeURIComponent(name));
+    if(!r.ok)throw new Error('not found');
+    return JSON.parse(await r.text());
+  }
+  if(!hasBrowserStorage)throw new Error('browser storage unavailable');
+  const record=JSON.parse(localStorage.getItem(browserBoardKey(name))||'null');
+  if(!record)throw new Error('not found');
+  return record.board;
+}
+async function listStoredBoards(){
+  if(helperBase){
+    const r=await fetch(helperBase+'/boards');
+    if(!r.ok)throw new Error('could not list boards');
+    return (await r.json()).boards||[];
+  }
+  if(!hasBrowserStorage)return [];
+  const boards=[];
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(!key?.startsWith(BROWSER_BOARD_PREFIX))continue;
+    try{ const name=decodeURIComponent(key.slice(BROWSER_BOARD_PREFIX.length));
+      if(name===AUTOSAVE)continue;
+      const record=JSON.parse(localStorage.getItem(key));
+      if(record?.board)boards.push({name,mtime:record.mtime||0});
+    }catch(e){}
+  }
+  return boards.sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+}
+async function removeStoredBoard(name){
+  if(helperBase)return (await fetch(helperBase+'/boards/'+encodeURIComponent(name),{method:'DELETE'})).ok;
+  if(!hasBrowserStorage)return false;
+  localStorage.removeItem(browserBoardKey(name)); return true;
+}
+async function renameStoredBoard(oldName,newName){
+  if(helperBase){
+    const r=await fetch(helperBase+'/boards/'+encodeURIComponent(oldName)+'/rename',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:newName})});
+    const result=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(result.error||'Could not rename that board');
+    return result.name||newName;
+  }
+  if(!hasBrowserStorage)throw new Error('Browser storage is unavailable');
+  if(localStorage.getItem(browserBoardKey(newName)))throw new Error('A board with that name already exists');
+  const board=await loadStoredBoard(oldName); board.title=newName;
+  if(!await storeBoard(newName,board))throw new Error('Could not save the renamed board');
+  localStorage.removeItem(browserBoardKey(oldName)); return newName;
+}
 function persist(){
   ensureSubBoards();
   storeActiveSubBoard();
-  if(!helperBase){ warnNoHelper(); return; }
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>{
-    fetch(helperBase+'/boards/'+encodeURIComponent(AUTOSAVE),{method:'PUT',body:JSON.stringify(S)})
-      .catch(()=>{});
-  },400);
+  saveTimer=setTimeout(async()=>{ if(!await storeBoard(AUTOSAVE,S))warnNoStorage(); },400);
 }
-function warnNoHelper(){ if(warnedNoHelper)return; warnedNoHelper=true;
-  toast('No local runtime—nothing is being saved. Run TierForge.cmd, then reload.'); }
+function warnNoStorage(){ if(warnedNoStorage)return; warnedNoStorage=true;
+  toast('Could not save—browser storage may be disabled or full.'); }
 function updateRuntimeStatus(){ const el=$('#runtimeStatus'); if(!el)return;
-  el.className='runtime-status '+(helperBase?'online':'offline');
-  el.innerHTML=`<i></i>${helperBase?'Saved locally':'Unsaved mode'}`; }
+  const available=helperBase||hasBrowserStorage;
+  el.className='runtime-status '+(available?'online':'offline');
+  el.innerHTML=`<i></i>${helperBase?'Saved to files':hasBrowserStorage?'Saved in browser':'Unsaved mode'}`; }
 function quickSave(){ const name=S.title||'Board';
-  saveBoard(name).then(ok=>toast(ok?'Saved board "'+name+'"':'Not saved—no local runtime')); }
+  saveBoard(name).then(ok=>toast(ok?'Saved board "'+name+'"':'Could not save this board')); }
 async function saveBoard(name){
-  if(!helperBase){ warnNoHelper(); return false; }
   ensureSubBoards();
   storeActiveSubBoard();
-  try{ const r=await fetch(helperBase+'/boards/'+encodeURIComponent(name),
-    {method:'PUT',body:JSON.stringify(S)}); return r.ok; }
-  catch(e){ return false; }
+  return storeBoard(name,S);
 }
 async function renderBoards(){
   const wrap=$('#boardlist'); $('#boardname').value=S.title;
-  if(!helperBase){ wrap.innerHTML=`<div class="muted">No local runtime—boards can't be
-    saved or loaded from disk. Run <code>TierForge.cmd</code> (or
-    <code>npm run serve</code>) from the TierForge folder, then reload this
-    page.</div>`; return; }
   let list=[];
-  try{ list=(await (await fetch(helperBase+'/boards')).json()).boards||[]; }catch(e){}
+  try{ list=await listStoredBoards(); }catch(e){}
   wrap.innerHTML=list.length?list.map(b=>`<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)">
       <span data-board-label style="flex:1">${esc(b.name)}</span>
       <small>${new Date(b.mtime).toLocaleString()}</small>
@@ -805,9 +859,9 @@ async function renderBoards(){
     :'<div class="muted">No saved boards yet.</div>';
   $$('[data-board-label]',wrap).forEach(x=>x.ondblclick=()=>startInlineBoardRename(x));
   $$('button[data-load]',wrap).forEach(x=>x.onclick=async()=>{
-    const r=await fetch(helperBase+'/boards/'+encodeURIComponent(x.dataset.load));
-    if(!r.ok)return toast('Could not load that board');
-    snapshot(); S=JSON.parse(await r.text()); prepareState(); sel.clear(); persist(); render(); dlgBoards.close(); });
+    try{ const board=await loadStoredBoard(x.dataset.load);
+      snapshot(); S=board; prepareState(); sel.clear(); persist(); render(); dlgBoards.close(); }
+    catch(e){ toast('Could not load that board'); } });
   $$('button[data-overwrite]',wrap).forEach(x=>x.onclick=async()=>{
     if(x.dataset.confirm!=='1'){
       x.dataset.confirm='1';
@@ -817,9 +871,8 @@ async function renderBoards(){
     }
     x.disabled=true;
     const name=x.dataset.overwrite;
-    const r=await fetch(helperBase+'/boards/'+encodeURIComponent(name),
-      {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify((storeActiveSubBoard(),S))});
-    if(!r.ok){ x.disabled=false; delete x.dataset.confirm; x.textContent='Overwrite'; return toast('Could not overwrite that board'); }
+    storeActiveSubBoard();
+    if(!await storeBoard(name,S)){ x.disabled=false; delete x.dataset.confirm; x.textContent='Overwrite'; return toast('Could not overwrite that board'); }
     renderBoards(); toast('Overwrote board "'+name+'"');
   });
   $$('button[data-drop]',wrap).forEach(x=>x.onclick=async()=>{
@@ -831,7 +884,7 @@ async function renderBoards(){
       return;
     }
     x.disabled=true;
-    await fetch(helperBase+'/boards/'+encodeURIComponent(x.dataset.drop),{method:'DELETE'});
+    await removeStoredBoard(x.dataset.drop);
     renderBoards(); });
 }
 function startInlineBoardRename(label){
@@ -844,10 +897,9 @@ function startInlineBoardRename(label){
     if(!newName)return toast('Board name cannot be empty');
     if(newName===oldName)return renderBoards();
     input.dataset.saving='1';
-    const r=await fetch(helperBase+'/boards/'+encodeURIComponent(oldName)+'/rename',
-      {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:newName})});
-    if(!r.ok){ let msg='Could not rename that board'; try{ msg=(await r.json()).error||msg; }catch(e){} delete input.dataset.saving; return toast(msg); }
-    const result=await r.json(); renderBoards(); toast('Renamed board to "'+(result.name||newName)+'"');
+    try{ const resultName=await renameStoredBoard(oldName,newName);
+      renderBoards(); toast('Renamed board to "'+resultName+'"'); }
+    catch(e){ delete input.dataset.saving; toast(e.message||'Could not rename that board'); }
   };
   input.onkeydown=e=>{
     if(e.key==='Enter'){e.preventDefault();save();}
@@ -855,7 +907,7 @@ function startInlineBoardRename(label){
   };
 }
 $('#btnSaveBoard').onclick=async()=>{ const n=$('#boardname').value.trim()||'Board';
-  S.title=n; const ok=await saveBoard(n); renderBoards(); toast(ok?'Saved':'Not saved—no local runtime'); };
+  S.title=n; const ok=await saveBoard(n); renderBoards(); toast(ok?'Saved':'Could not save this board'); };
 
 /* ============================ TIERMAKER IMPORT ============================
 
@@ -873,6 +925,7 @@ $('#btnSaveBoard').onclick=async()=>{ const n=$('#boardname').value.trim()||'Boa
 const HELPERS=['', 'http://127.0.0.1:8777', 'http://localhost:8777'];
 let helperBase=null;
 async function findHelper(){
+  if(document.querySelector('meta[name="tierforge-runtime"][content="static"]'))return null;
   for(const base of HELPERS){
     if(base===''&&!/^https?:/.test(location.protocol))continue;   // file:// has no same-origin server
     try{ const c=new AbortController(); setTimeout(()=>c.abort(),1500);
@@ -1573,15 +1626,11 @@ function wrapText(ctx,text,x,y,maxw,lh){
 (async()=>{
   helperBase=await findHelper();
   updateRuntimeStatus();
-  if(helperBase){
-    try{ const r=await fetch(helperBase+'/boards/'+encodeURIComponent(AUTOSAVE));
-      if(r.ok) S=JSON.parse(await r.text()); }
-    catch(e){}
-  }
+  try{ S=await loadStoredBoard(AUTOSAVE); }catch(e){}
   if(!S||!S.tiers)S=blankState();
   const hadSize=Object.prototype.hasOwnProperty.call(S.opts||{},'size');
   prepareState();
   if(hadSize)persist();
   render();
-  if(!helperBase) warnNoHelper();
+  if(!helperBase&&!hasBrowserStorage)warnNoStorage();
 })();
