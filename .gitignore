@@ -1,2 +1,4 @@
 Saved/
 .playwright-cli/
+Images/
+__pycache__/
