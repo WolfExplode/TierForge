@@ -655,6 +655,29 @@ function openInsp(id){
 })();
 /* ============================ TOOLBAR ============================ */
 $('#title').oninput=e=>{ S.title=e.target.value; persist(); };
+function setBoardResetArmed(armed){
+  const control=$('#btnResetBoard');
+  control.classList.toggle('is-armed',armed);
+  control.innerHTML=armed?icon('trash'):'×';
+  control.title=armed?'Click again to reset the board':'Reset board';
+  control.setAttribute('aria-label',armed?'Confirm reset board':'Reset board');
+}
+$('#btnResetBoard').onclick=()=>{
+  const control=$('#btnResetBoard');
+  if(!control.classList.contains('is-armed')){
+    setBoardResetArmed(true); return;
+  }
+  snapshot();
+  S=blankState();
+  prepareState();
+  sel.clear(); lastClicked=null; compareSubBoardId=null; comparisonState=null;
+  closeInsp();
+  setBoardResetArmed(false);
+  persist(); render(); toast('Board reset to default');
+};
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#btnResetBoard'))setBoardResetArmed(false);
+});
 (()=>{
   const divider=$('#titleDivider'); let startX=0,startWidth=0,resizing=false;
   const minWidth=220;

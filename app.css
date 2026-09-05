@@ -30,6 +30,11 @@ header{display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:va
 #title{background:transparent;border:none;font-size:17px;font-weight:600;padding:2px 4px;min-width:220px;
   flex:0 0 var(--title-width,820px);min-width:220px}
 #title:hover{background:var(--panel2)}
+.title-reset-control{flex:none;margin-left:-4px;border:0;background:transparent;color:var(--dim);
+  padding:2px 4px;font-size:20px;line-height:20px}
+.title-reset-control:hover{background:var(--line);color:var(--fg)}
+.title-reset-control.is-armed{color:var(--danger)}
+.title-reset-control.is-armed:hover{color:var(--danger)}
 .title-divider{position:relative;align-self:stretch;flex:none;width:12px;margin:0 -2px;cursor:col-resize;
   touch-action:none}
 .title-divider::after{content:"";position:absolute;top:5px;bottom:5px;left:50%;width:1px;background:var(--line)}
