@@ -19,3 +19,11 @@ test('TierForge board JSON round-trips through PNG metadata', async () => {
 test('ordinary PNGs remain ordinary image imports', async () => {
   assert.equal(await TierForgePng.extract(pixel), null);
 });
+
+test('re-embedding replaces stale TierForge metadata', async () => {
+  const first = TierForgePng.embed(pixel, { type: 'tierforge-item', item: { name: 'Old name' } });
+  const second = TierForgePng.embed(first, { type: 'tierforge-item', item: { name: 'Booming Conch' } });
+  assert.deepEqual(await TierForgePng.extract(second),
+    { type: 'tierforge-item', item: { name: 'Booming Conch' } });
+  assert.equal(second.length, first.length + 'Booming Conch'.length - 'Old name'.length);
+});

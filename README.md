@@ -28,6 +28,9 @@ TierMaker remix placements are stored in TierMaker's browser storage, not the UR
 
 PNG exports embed the complete board. Drag the original PNG back into TierForge to restore an editable board; screenshots and re-encoded images may lose this metadata.
 
+PNG item images saved by the local importer also embed their item name, tags, description, notes, and
+source URL. Adding those files back to TierForge restores those fields automatically.
+
 ## Controls
 
 - Click to select; Shift-click to select a range.

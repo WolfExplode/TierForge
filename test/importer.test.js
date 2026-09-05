@@ -30,18 +30,20 @@ test('parseWikiCards extracts searchable metadata', () => {
   assert.equal(card.name, 'Test Card');
   assert.equal(card.src, 'https://slaythespire.wiki.gg/images/Test.png');
   assert.deepEqual(card.tags, ['Ironclad', 'Rare', 'Attack', 'Strike', 'Fire']);
-  assert.equal(card.notes, 'Cost 2. Deal 12 damage.');
+  assert.equal(card.description, 'Cost 2. Deal 12 damage.');
+  assert.equal(card.notes, '');
 });
 
 test('parseWikiRelics extracts relic metadata and original image URLs', () => {
-  const html = '<div class="relic-box" data-name="Arcane Scroll" data-rarity="Common" data-character="Any" data-ancient-upgrade="Yes" data-tags="Draw, Magic">' +
+  const html = '<div class="relic-box" data-name="Arcane Scroll" data-rarity="Common" data-character="Any" data-ancient="Neow" data-ancient-upgrade="Yes" data-tags="Draw, Magic">' +
     '<span class="img-base"><img src="/images/thumb/StS2_ArcaneScroll.png/80px-StS2_ArcaneScroll.png"></span>' +
-    '<div class="relic-desc">Draw <b>2</b> cards.</div></div>';
+    '<div class="relic-desc">Draw <b>2</b> cards and gain <img alt="StS2 EnergyColorless.png" src="energy.png">.</div></div>';
   const [relic] = parseWikiRelics(html);
   assert.equal(relic.name, 'Arcane Scroll');
   assert.equal(relic.src, 'https://slaythespire.wiki.gg/images/StS2_ArcaneScroll.png');
-  assert.deepEqual(relic.tags, ['Common', 'Any', 'Ancient', 'Draw', 'Magic']);
-  assert.equal(relic.notes, 'Draw 2 cards.');
+  assert.deepEqual(relic.tags, ['Common', 'Any', 'Neow', 'Ancient', 'Draw', 'Magic']);
+  assert.equal(relic.description, 'Draw 2 cards and gain 1 Energy.');
+  assert.equal(relic.notes, '');
 });
 
 test('named item selection is punctuation-insensitive and optional', () => {

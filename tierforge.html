@@ -149,9 +149,9 @@
         <input id="jsonfile" type="file" accept=".json,application/json" hidden></div>
     </div>
     <div class="tabpane" id="tab-text">
-      <div class="note">One item per line — <code>Name | tag, tag | note</code>. Creates text-only
+      <div class="note">One item per line — <code>Name | tag, tag | description | note</code>. Creates text-only
         items (no image) that are fully searchable.</div>
-      <textarea id="pastetext" placeholder="Bash | attack, starter | 8 dmg for 2 vuln"></textarea>
+      <textarea id="pastetext" placeholder="Bash | attack, starter | Deal 8 damage and apply 2 Vulnerable | my note"></textarea>
       <button id="btnParseText" class="primary">Add items</button>
     </div>
   </div>
@@ -205,13 +205,13 @@
 <dialog id="dlgHelp">
   <h3>How it works</h3>
   <div class="dbody">
-    <p><strong>Finding things.</strong> Every item carries a caption node holding its name, tags and
-      notes. In <em>Ctrl+F only</em> mode that caption is rendered at zero opacity — invisible, but
+    <p><strong>Finding things.</strong> Every item carries a caption node holding its name, tags,
+      description and notes. In <em>Ctrl+F only</em> mode that caption is rendered at zero opacity — invisible, but
       the browser's own <kbd>Ctrl</kbd>+<kbd>F</kbd> still matches it, scrolls to it and highlights
       the tile. The in-app search box (<kbd>/</kbd>) additionally dims non-matches and can select
       every hit at once.</p>
     <p><strong>Search syntax.</strong> Space-separated terms are ANDed. <code>tag:starter</code>,
-      <code>tier:A</code>, <code>note:vuln</code>, <code>-word</code> to exclude, <code>"two words"</code>
+      <code>tier:A</code>, <code>desc:damage</code>, <code>note:vuln</code>, <code>-word</code> to exclude, <code>"two words"</code>
       for a phrase.</p>
     <p><strong>Keys.</strong> <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>F</kbd> search · <kbd>Enter</kbd> while searching selects all matches ·
       <kbd>Esc</kbd> clear · <kbd>Ctrl</kbd>+<kbd>A</kbd> select matches · <kbd>Del</kbd> delete selection · <kbd>Ctrl</kbd>+<kbd>S</kbd> save board ·

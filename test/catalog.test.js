@@ -2,14 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import { allowedImageHost } from '../src/worker.js';
+await import('../png-metadata.js');
 
 for (const [name, minimum] of [['sts2-relics', 250], ['sts2-cards', 500]]) {
   test(`${name} bundled catalog has hosted images and remote fallbacks`, async () => {
     const catalog = JSON.parse(await readFile(new URL(`../catalogs/${name}.json`, import.meta.url)));
     assert.ok(catalog.items.length >= minimum);
     assert.ok(catalog.items.every(item => item.name && /^Images\/catalogs\//.test(item.img)));
+    assert.ok(catalog.items.every(item => typeof item.description === 'string' && item.notes === ''));
     assert.ok(catalog.items.every(item => /^https:\/\/slaythespire\.wiki\.gg\/images\//.test(item.fallbackImg)));
     await Promise.all(catalog.items.map(item => access(new URL(`../${item.img}`, import.meta.url))));
+    const sample = catalog.items[Math.floor(catalog.items.length / 2)];
+    const metadata = await TierForgePng.extract(await readFile(new URL(`../${sample.img}`, import.meta.url)));
+    assert.equal(metadata.type, 'tierforge-item');
+    assert.equal(metadata.item.name, sample.name);
+    assert.equal(metadata.item.description, sample.description);
   });
 }
 

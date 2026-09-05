@@ -8,14 +8,15 @@ its title, and its source URL. Boards use the versioned `.tierforge.json` format
 
 ## Item
 
-One rankable entry. An item has a stable board-local ID, a name, tags, notes, an image reference,
-and optionally a source image reference and TierMaker key.
+One rankable entry. An item has a stable board-local ID, a name, tags, a factual description,
+personal notes, an image reference, and optionally a source image reference and TierMaker key.
 
 ## Import
 
 The process that turns a supported TierMaker or game-wiki URL into a Board-compatible pack.
 Imports may leave image references remote, embed bytes in the board, or materialize image files in
-`Images/`.
+`Images/`. Materialized PNGs contain TierForge item metadata so their name, tags, description, notes,
+and source can be reconstructed when the image is imported again.
 
 ## Catalog asset
 

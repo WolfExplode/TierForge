@@ -21,8 +21,8 @@ for (const [id, url] of sources) {
     id,
     source: url,
     updated: new Date().toISOString(),
-    items: pack.items.map(({ name, tags, notes, img, src }) => ({
-      name, tags, notes, img,
+    items: pack.items.map(({ name, tags, description, notes, img, src }) => ({
+      name, tags, description, notes, img,
       ...(img !== src ? { fallbackImg: src } : {}),
       src,
     })),

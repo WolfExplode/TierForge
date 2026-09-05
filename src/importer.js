@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access as fileExists, mkdir, unlink, writeFile } from 'node:fs/promises';
+import { access as fileExists, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import '../png-metadata.js';
 
 const execFileAsync = promisify(execFile);
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -22,6 +23,18 @@ function decodeHtml(value = '') {
     const number = parseInt(code.slice(radix === 16 ? 2 : 1), radix);
     return Number.isFinite(number) ? String.fromCodePoint(number) : all;
   });
+}
+
+function imageAltText(tag) {
+  const alt = decodeHtml(/\balt="([^"]*)"/i.exec(tag)?.[1] || '')
+    .replace(/\.[a-z0-9]+$/i, '').replace(/^StS2[ _-]*/i, '');
+  if (/^Energy/i.test(alt)) return '1 Energy';
+  return alt.replace(/[_-]+/g, ' ').replace(/(?<=[a-z])(?=[A-Z])/g, ' ').trim();
+}
+
+function wikiDescriptionText(html) {
+  return decodeHtml(String(html).replace(/<img\b[^>]*>/gi, tag => ` ${imageAltText(tag)} `)
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1')).trim();
 }
 
 async function curl(url, headers, timeoutMs) {
@@ -228,17 +241,18 @@ export function parseWikiItems(page, type) {
     if (!image) continue;
     const src = originalWikiImageUrl(new URL(decodeHtml(image), 'https://slaythespire.wiki.gg/').href);
     const tags = [...new Set([
-      attrs.color, attrs.rarity, attrs.type, attrs.character, attrs['ancient-upgrade'] === 'Yes' ? 'Ancient' : '',
+      attrs.color, attrs.rarity, attrs.type, attrs.character, attrs.ancient,
+      attrs['ancient-upgrade'] === 'Yes' ? 'Ancient' : '',
       ...(attrs.tags || '').split(',').map(tag => tag.trim()),
     ].filter(Boolean))];
     const descriptionClass = type === 'relic' ? 'relic-desc' : 'desc-base';
-    let notes = decodeHtml((new RegExp(`class="${descriptionClass}">(.*?)<\\/div>`, 'is').exec(window)?.[1] || '')
-      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
-    if (attrs.cost) notes = `Cost ${attrs.cost}. ${notes}`.trim();
+    let description = wikiDescriptionText(new RegExp(`class="${descriptionClass}">(.*?)<\\/div>`, 'is')
+      .exec(window)?.[1] || '');
+    if (attrs.cost) description = `Cost ${attrs.cost}. ${description}`.trim();
     let key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || String(cards.length + 1);
     if (seen.has(key)) key = `${key}-${cards.length + 1}`;
     seen.add(key);
-    cards.push({ key, src, img: src, name, tags, notes });
+    cards.push({ key, src, img: src, name, tags, description, notes: '' });
   }
   return cards;
 }
@@ -295,15 +309,25 @@ async function materializeImages(items, mode, { directory, linkPrefix, onlyMissi
       const filename = `${stem}${extension}`;
       const localImage = `${linkPrefix.replace(/\/$/, '')}/${filename}`;
       const localPath = path.join(directory, filename);
+      const metadata = { type: 'tierforge-item', v: 1, item: {
+        name: item.name, tags: item.tags || [], description: item.description || '', notes: item.notes || '',
+        src: item.src, key: item.key,
+      } };
       if (mode === 'local' && onlyMissing) {
         try {
           await fileExists(localPath);
+          if (extension === '.png') {
+            const cached = await readFile(localPath);
+            await writeFile(localPath, Buffer.from(globalThis.TierForgePng.embed(cached, metadata)));
+          }
           item.img = localImage;
           log(`    using cached image`);
+          await downloadNext();
           return;
         } catch { /* cache miss: fetch it below */ }
       }
-      const bytes = await requestBytes(item.src, { timeoutMs: 45_000 });
+      let bytes = await requestBytes(item.src, { timeoutMs: 45_000 });
+      if (extension === '.png') bytes = Buffer.from(globalThis.TierForgePng.embed(bytes, metadata));
       if (mode === 'embed') item.img = `data:${mimeFor(extension)};base64,${bytes.toString('base64')}`;
       else {
         await writeFile(localPath, bytes);
@@ -321,7 +345,7 @@ async function materializeImages(items, mode, { directory, linkPrefix, onlyMissi
 
 function finishPack(raw, tags = []) {
   const items = raw.items.map(item => ({ id: item.key, key: item.key, tmkey: item.key,
-    name: item.name, tags: [...tags], notes: '', img: item.img, src: item.src }));
+    name: item.name, tags: [...tags], description: item.description || '', notes: '', img: item.img, src: item.src }));
   const known = new Set(raw.items.map(item => item.key));
   const tiers = raw.templateCode?.tiers?.length
     ? raw.templateCode.tiers.map(tier => ({ label: tier.label, color: tier.color,
@@ -363,7 +387,8 @@ export async function importSource(url, options = {}) {
     return { v: 1, title, source, tiers: [...'SABCDF'].map((label, index) => ({
       label, color: TM_COLORS[index], items: [],
     })), pool: cards.map(card => card.key), items: cards.map(card => ({
-      id: card.key, key: card.key, name: card.name, tags: card.tags, notes: card.notes,
+      id: card.key, key: card.key, name: card.name, tags: card.tags,
+      description: card.description, notes: card.notes,
       img: card.img, src: card.src,
     })) };
   }

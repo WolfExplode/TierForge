@@ -30,19 +30,32 @@
     data.set(text,keyword.length+5);
     return chunk('iTXt',data);
   }
+  function isTierForgeTextChunk(type,data){
+    if(type!=='iTXt'&&type!=='tEXt')return false;
+    try{return readNull(data,0).text==='tierforge';}catch{return false;}
+  }
   function concat(parts){
     const output=new Uint8Array(parts.reduce((sum,part)=>sum+part.length,0));
     let offset=0; for(const part of parts){output.set(part,offset);offset+=part.length;} return output;
   }
   function embed(input,value){
     const bytes=pngBytes(input); assertPng(bytes);
-    let offset=8, iend=-1;
+    let offset=8, foundEnd=false;
+    const parts=[bytes.subarray(0,8)];
     while(offset+12<=bytes.length){
-      const length=uint32(bytes,offset),type=decoder.decode(bytes.subarray(offset+4,offset+8));
-      if(type==='IEND'){iend=offset;break;} offset+=12+length;
+      const length=uint32(bytes,offset),end=offset+12+length;
+      if(end>bytes.length)throw new Error('Truncated PNG chunk');
+      const type=decoder.decode(bytes.subarray(offset+4,offset+8));
+      const data=bytes.subarray(offset+8,offset+8+length);
+      if(type==='IEND'){
+        parts.push(metadataChunk(value),bytes.subarray(offset,end)); foundEnd=true; break;
+      }
+      // Re-embedding updates our record instead of leaving stale metadata first.
+      if(!isTierForgeTextChunk(type,data))parts.push(bytes.subarray(offset,end));
+      offset=end;
     }
-    if(iend<0)throw new Error('PNG has no IEND chunk');
-    return concat([bytes.subarray(0,iend),metadataChunk(value),bytes.subarray(iend)]);
+    if(!foundEnd)throw new Error('PNG has no IEND chunk');
+    return concat(parts);
   }
   function readNull(data,start){
     const end=data.indexOf(0,start);
