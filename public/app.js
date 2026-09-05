@@ -8,7 +8,8 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const BROWSER_IMAGE_PREFIX='tierforge-image:';
 const browserImageUrls=new Map();
 const isBrowserImage=src=>String(src||'').startsWith(BROWSER_IMAGE_PREFIX);
-const itemImageCandidates=it=>[it?.img,it?.fallbackImg,it?.localImg].filter((src,index,list)=>src&&list.indexOf(src)===index);
+const itemImageCandidates=it=>[it?.img,it?.fallbackImg,it?.remoteFallbackImg,it?.localImg]
+  .filter((src,index,list)=>src&&list.indexOf(src)===index);
 
 let imageDbPromise=null;
 function openImageDb(){
@@ -761,11 +762,11 @@ async function refreshHelperState(){
   $('#localimgsrow').hidden=!helperBase;
   if(helperBase){ el.innerHTML=`<b style="color:var(--ok)">Local runtime connected</b> (${esc(helperBase)}).
     Full URL import and filesystem image storage are available.`; }
-  else { el.innerHTML=`<b style="color:var(--ok)">Hosted mode.</b> Built-in catalogs use wiki images.
+  else { el.innerHTML=`<b style="color:var(--ok)">Hosted mode.</b> Built-in catalogs include their images.
     For other TierMaker lists, paste a URL or use <b>Grab from page</b>.`;
     $('#localimgs').checked=false; }
 }
-$('#btnExport').onclick=()=>dlgExport.showModal();
+$('#btnExport').onclick=()=>{ resetExportDialog(); dlgExport.showModal(); };
 $('#btnBoards').onclick=()=>{ renderBoards(); dlgBoards.showModal(); };
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); $$('.tabpane').forEach(p=>p.classList.remove('on'));
@@ -781,11 +782,17 @@ let dragDepth=0;
 window.addEventListener('dragenter',e=>{ if(!e.dataTransfer.types.includes('Files'))return;
   dragDepth++; $('#drophint').classList.add('on'); });
 window.addEventListener('dragleave',()=>{ if(--dragDepth<=0){dragDepth=0;$('#drophint').classList.remove('on');} });
-window.addEventListener('drop',e=>{ if(!e.dataTransfer.files.length)return;
+window.addEventListener('drop',async e=>{ if(!e.dataTransfer.files.length)return;
   e.preventDefault(); dragDepth=0; $('#drophint').classList.remove('on');
   const files=[...e.dataTransfer.files];
   const j=files.find(f=>/\.json$/i.test(f.name));
   if(j) return j.text().then(t=>loadJSON(t,false));
+  const pngs=files.filter(file=>file.type==='image/png'||/\.png$/i.test(file.name));
+  for(const file of pngs){
+    try{ const board=await TierForgePng.extract(await file.arrayBuffer());
+      if(board){ loadJSON(JSON.stringify(board),false); return toast(`Loaded board from ${file.name}`); } }
+    catch(error){ console.warn(`Could not read TierForge metadata from ${file.name}:`,error); }
+  }
   addFiles(files.filter(f=>f.type.startsWith('image/'))); });
 window.addEventListener('dragover',e=>{ if(e.dataTransfer.types.includes('Files'))e.preventDefault(); });
 
@@ -1182,7 +1189,8 @@ function mergeItemsIntoPool(pack){
     if(img && Object.values(S.items).some(i=>i.img===img||i.src===img)) return;
     const id=uid();
     S.items[id]={id,name:it.name||nameFromUrl(img),tags:it.tags||[],notes:it.notes||'',img,
-      fallbackImg:it.fallbackImg||'',localImg:it.localImg||'',src:it.src||img};
+      fallbackImg:it.fallbackImg||'',remoteFallbackImg:it.remoteFallbackImg||'',
+      localImg:it.localImg||'',src:it.src||img};
     S.pool.push(id); added++;
   });
   return added;
@@ -1235,7 +1243,7 @@ function renderGameSources(){
 
 function quickWikiImport(src){
   $('#tmurl').value=src.wiki;
-  /* Prefer remote wiki links in hosted mode and a refreshable file cache locally. */
+  /* Hosted mode uses the bundled catalog assets; local mode can refresh its file cache. */
   $('#localimgs').checked=!!helperBase; $('#embedimgs').checked=false;
   $('#btnFetch').click();
 }
@@ -1267,7 +1275,7 @@ async function relinkHostedItems(sources){
   const items=Object.values(S.items);
   if(!items.length)return toast('There are no items to match.');
   snapshot();
-  let localMatches=0,wikiMatches=0;
+  let localMatches=0,catalogMatches=0;
   try{
     const images=await listBrowserImages(), localByName={};
     images.forEach(record=>{
@@ -1287,16 +1295,16 @@ async function relinkHostedItems(sources){
       items.forEach(it=>{
         const wiki=sourceNameKeys(it.name).map(key=>byName[key]).find(Boolean);
         if(!wiki)return;
-        const wikiImage=wiki.img||wiki.src;
-        if(!wikiImage)return;
-        if(it.img&&it.img!==wikiImage&&/tiermaker\.com/i.test(it.img))it.fallbackImg=it.img;
-        it.img=wikiImage; wikiMatches++;
+        const hostedImage=wiki.img||wiki.src;
+        if(!hostedImage)return;
+        if(it.img&&it.img!==hostedImage&&/tiermaker\.com/i.test(it.img))it.remoteFallbackImg=it.img;
+        it.img=hostedImage; it.fallbackImg=wiki.fallbackImg||wiki.src||''; catalogMatches++;
       });
     }catch(e){ log(`${src.itemType} catalog unavailable: ${e.message}`); }
   }
   persist(); render();
-  log(`Matched ${wikiMatches} wiki image${wikiMatches===1?'':'s'} and ${localMatches} browser image fallback${localMatches===1?'':'s'}.`);
-  toast(`Matched ${wikiMatches} wiki · ${localMatches} local`);
+  log(`Matched ${catalogMatches} catalog image${catalogMatches===1?'':'s'} and ${localMatches} browser image fallback${localMatches===1?'':'s'}.`);
+  toast(`Matched ${catalogMatches} catalog · ${localMatches} local`);
 }
 
 async function relinkItems(sources=GAME_SOURCES){
@@ -1358,8 +1366,8 @@ async function relinkItems(sources=GAME_SOURCES){
         matches.forEach(it=>{
           const w=sourceNameKeys(it.name).map(key=>savedByName[key]).find(Boolean);
           if(w){
-            if(it.img&&it.img!==w.img&&/tiermaker\.com/i.test(it.img))it.fallbackImg=it.img;
-            it.img=w.img; it.src=w.src||w.img||it.src; saved.push(it);
+            if(it.img&&it.img!==w.img&&/tiermaker\.com/i.test(it.img))it.remoteFallbackImg=it.img;
+            it.img=w.img; it.fallbackImg=w.src||''; it.src=w.src||w.img||it.src; saved.push(it);
           }
           else failed.push(it);
         });
@@ -1584,7 +1592,8 @@ function normalize(o){
   arr.forEach(it=>{ const id=it.id||uid();
     st.items[id]={id,name:it.name||nameFromUrl(it.img||''),tags:it.tags||[],
       notes:it.notes||'',img:it.img||it.src||'',fallbackImg:it.fallbackImg||'',
-      localImg:it.localImg||'',src:it.src||'',tmkey:it.tmkey||it.key||''};
+      remoteFallbackImg:it.remoteFallbackImg||'',localImg:it.localImg||'',
+      src:it.src||'',tmkey:it.tmkey||it.key||''};
     map[it.id||'']=id; if(it.key)map[it.key]=id; if(it.tmkey)map[it.tmkey]=id; });
   const tierMap={};
   st.tiers=(o.tiers||[]).map((t,i)=>{ const id=uid(); if(t.id)tierMap[t.id]=id;
@@ -1620,23 +1629,34 @@ function download(name,blob){ const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),5000); }
 const slug=s=>(s||'tierlist').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+function resetExportDialog(){
+  $('#explog').hidden=true; $('#explog').textContent='';
+  $('#expout').hidden=true; $('#expout').value=''; $('#expCopy').hidden=true;
+}
+function showExportStatus(message,html=false){
+  const el=$('#explog'); el.hidden=false;
+  if(html)el.innerHTML=message; else el.textContent=message;
+}
+function showExportText(value){
+  $('#expout').value=value; $('#expout').hidden=false; $('#expCopy').hidden=false;
+}
 
 $('#expJson').onclick=()=>{ const out=JSON.stringify(S,null,1);
-  $('#expout').value=out.length<400000?out:'(too large to preview — file downloaded)';
-  download(slug(S.title)+'.tierforge.json',new Blob([out],{type:'application/json'})); };
+  download(slug(S.title)+'.tierforge.json',new Blob([out],{type:'application/json'}));
+  toast('Board JSON downloaded'); };
 $('#expMd').onclick=()=>{ let s=`# ${S.title}\n\n`;
   S.tiers.forEach(t=>{ s+=`## ${t.label}\n`;
     s+=t.items.map(i=>`- ${S.items[i].name}${S.items[i].tags?.length?` _(${S.items[i].tags.join(', ')})_`:''}`
       +`${S.items[i].notes?` — ${S.items[i].notes}`:''}`).join('\n')||'- _(empty)_'; s+='\n\n'; });
   if(S.pool.length)s+=`## Unranked\n`+S.pool.map(i=>`- ${S.items[i].name}`).join('\n')+'\n';
-  $('#expout').value=s; };
+  showExportText(s); };
 $('#expCsv').onclick=()=>{ const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
   let s='tier,rank,name,tags,notes,image\n';
   S.tiers.forEach(t=>t.items.forEach((i,n)=>{ const it=S.items[i];
     s+=[q(t.label),n+1,q(it.name),q((it.tags||[]).join('; ')),q(it.notes),q(it.img)].join(',')+'\n'; }));
   S.pool.forEach((i,n)=>{ const it=S.items[i];
     s+=[q(''),n+1,q(it.name),q((it.tags||[]).join('; ')),q(it.notes),q(it.img)].join(',')+'\n'; });
-  $('#expout').value=s;
+  showExportText(s);
   download(slug(S.title)+'.csv',new Blob([s],{type:'text/csv'})); };
 $('#expCopy').onclick=()=>{ $('#expout').select(); navigator.clipboard.writeText($('#expout').value);
   toast('Copied'); };
@@ -1660,9 +1680,10 @@ function templateCodeFor(){
 $('#expTm').onclick=()=>{
   const r=templateCodeFor();
   const el=$('#explog');
-  if(!r){ el.textContent='This board did not come from a TierMaker template, so there is nothing to push back to.';
-    $('#expout').value=''; return; }
-  $('#expout').value=r.code;
+  el.hidden=false;
+  if(!r){ el.textContent='This board did not come from a TierMaker template.';
+    $('#expout').value=''; $('#expout').hidden=true; $('#expCopy').hidden=true; return; }
+  showExportText(r.code);
   const url='https://tiermaker.com/create/'+r.tpl+'?ref=list-remix';
   const push='javascript:'+["(function(){try{localStorage.setItem(",
     JSON.stringify(r.tpl+'TierListMakerCode'),",",JSON.stringify(r.code),
@@ -1704,7 +1725,7 @@ async function loadForCanvas(source){
   return null;
 }
 
-$('#expEmbed').onclick=()=>embedAll(m=>{ $('#explog').textContent=m; });
+$('#expEmbed').onclick=()=>embedAll(m=>showExportStatus(m));
 async function embedAll(report=()=>{}){
   const list=Object.values(S.items).filter(i=>i.img&&isRemote(i.img));
   if(!list.length){ report('Everything is already embedded.'); return; }
@@ -1719,8 +1740,24 @@ async function embedAll(report=()=>{}){
   persist(); render(); report(`Embedded ${ok} image${ok===1?'':'s'}${fail?`, ${fail} failed`:''}.`);
 }
 
+function blobDataUrl(blob){ return new Promise((resolve,reject)=>{
+  const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=()=>reject(reader.error);
+  reader.readAsDataURL(blob);
+}); }
+async function portableBoardForPng(){
+  storeActiveSubBoard();
+  const board=JSON.parse(JSON.stringify(S));
+  await Promise.all(Object.values(board.items).map(async item=>{
+    if(!isBrowserImage(item.localImg))return;
+    try{ const record=await browserImageRecord(item.localImg);
+      if(record?.blob)item.localImg=await blobDataUrl(record.blob); }
+    catch(e){ item.localImg=''; }
+  }));
+  return board;
+}
+
 $('#expPng').onclick=async()=>{
-  const el=$('#explog'); el.textContent='Loading images…';
+  const el=$('#explog'); el.hidden=false; el.textContent='Loading images…';
   const scale=Number($('#pngScale').value)||4;
   const S_=S, subBoardName=activeSubBoard()?.name||'Main',
     exportTitle=`${S_.title} — ${subBoardName}`,
@@ -1765,9 +1802,14 @@ $('#expPng').onclick=async()=>{
     }
     y+=h;
   }
-  try{ cvs.toBlob(b=>{ download(slug(`${S_.title}-${subBoardName}`)+'.png',b);
-    el.textContent=`Done${failed?` — ${failed} image(s) could not be loaded; run "Embed all images" and retry.`:''}`; }); }
-  catch(err){ el.textContent='Canvas is tainted — run "Embed all images" first, then export again.'; }
+  try{
+    el.textContent='Packing editable board data into the PNG…';
+    const png=await new Promise((resolve,reject)=>cvs.toBlob(blob=>blob?resolve(blob):reject(new Error('PNG encoding failed')),'image/png'));
+    const board=await portableBoardForPng();
+    const packed=TierForgePng.embed(await png.arrayBuffer(),board);
+    download(slug(`${S_.title}-${subBoardName}`)+'.png',new Blob([packed],{type:'image/png'}));
+    el.textContent=`Downloaded editable PNG${failed?` · ${failed} image${failed===1?'':'s'} could not be drawn`:''}.`;
+  }catch(err){ el.textContent='PNG export failed: '+err.message; }
 };
 function wrapText(ctx,text,x,y,maxw,lh){
   const words=String(text).split(/\s+/), lines=[]; let cur='';

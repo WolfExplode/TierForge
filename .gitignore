@@ -1,6 +1,11 @@
 Saved/
 .playwright-cli/
-Images/
+# User-downloaded/imported images stay local. Curated catalog assets are
+# explicitly versioned and deployed with the site.
+Images/*
+!Images/catalogs/
+!Images/catalogs/**
+public/Images/
 __pycache__/
 node_modules/
 dist/

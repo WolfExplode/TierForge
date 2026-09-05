@@ -13,12 +13,19 @@ const sources = [
 await mkdir(output, { recursive: true });
 for (const [id, url] of sources) {
   process.stdout.write(`Refreshing ${id}...\n`);
-  const pack = await importSource(url, { root, log: message => process.stdout.write(`${message}\n`) });
+  const pack = await importSource(url, {
+    root, images: true, onlyMissing: true,
+    log: message => process.stdout.write(`${message}\n`),
+  });
   const catalog = {
     id,
     source: url,
     updated: new Date().toISOString(),
-    items: pack.items.map(({ name, tags, notes, img, src }) => ({ name, tags, notes, img, src })),
+    items: pack.items.map(({ name, tags, notes, img, src }) => ({
+      name, tags, notes, img,
+      ...(img !== src ? { fallbackImg: src } : {}),
+      src,
+    })),
   };
   await writeFile(path.join(output, `${id}.json`), `${JSON.stringify(catalog)}\n`);
   process.stdout.write(`Saved ${catalog.items.length} items.\n`);

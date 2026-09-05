@@ -3,6 +3,9 @@
   "name": "tierforge",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-05",
+  "build": {
+    "command": "node scripts/build.js"
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

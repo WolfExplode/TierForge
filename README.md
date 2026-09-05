@@ -16,9 +16,10 @@ TierForge requires Node.js 20 or newer and has no package dependencies. It opens
 <http://127.0.0.1:8777/> and stores data beside the application:
 
 ```text
-Saved/                  named boards and _autosave.tierforge.json
-Images/sts2/            downloaded wiki images
-Images/tiermaker/       downloaded TierMaker images
+Saved/                                      named boards and _autosave.tierforge.json
+Images/catalogs/slay-the-spire-2/cards/     hosted card catalog assets
+Images/catalogs/slay-the-spire-2/relics/    hosted relic catalog assets
+Images/imports/tiermaker/                   local TierMaker download cache
 ```
 
 Use `npm run serve -- --no-browser` to avoid opening a browser, or
@@ -36,36 +37,44 @@ npm install
 npm run deploy
 ```
 
-For a Git-connected Cloudflare Workers build, the committed `public/` artifact means the default
-settings work without a separate build phase:
+For a Git-connected Cloudflare Workers build, Wrangler runs the repository's configured build
+automatically:
 
 - Build command: leave blank
 - Deploy command: `npx wrangler deploy`
 
 No environment variables, secrets, databases, or manually provisioned Cloudflare resources are
 required. The static-assets binding is configured automatically. Local `npm run dev` and
-`npm run deploy` commands rebuild `public/` before starting Wrangler.
+`npm run deploy` commands also rebuild `public/` through Wrangler's custom build step.
 
-Hosted imports use bundled Slay the Spire 2 catalogs and retain original wiki image URLs. A
-same-origin Worker endpoint caches those images for display and PNG export, with the original
-TierMaker image retained as a fallback when a list supplies one. Refresh the bundled metadata with
-`npm run update:catalogs`.
+Hosted imports use bundled Slay the Spire 2 catalogs and images, so normal use does not scrape or
+hotlink another website. The original wiki URL and any TierMaker URL are retained as recovery
+fallbacks. `npm run update:catalogs` refreshes both catalog metadata and missing catalog images.
+Only maintained files under `Images/catalogs/` are included in the Cloudflare deployment;
+`Images/imports/` remains a machine-local cache.
 
 Users can also choose an image directory from the Import dialog. The browser copies supported
 images into IndexedDB, preserves the relative paths internally, and matches them to board items by
 filename. Browser security requires the user to select the directory; a site cannot open a path
 such as `C:\Users\name\Images` on its own.
 
+PNG exports contain the complete board JSON in a standard PNG `iTXt` metadata chunk. Dragging the
+original exported PNG back into TierForge restores the editable board; an ordinary PNG still adds
+as a normal image. Browser-library fallbacks used by the board are embedded into this metadata so
+the shared board does not depend on the sender's IndexedDB. Screenshots and image re-encoders can
+strip metadata, so share the original downloaded file.
+
 ## Importing
 
 Open **Import** to load a built-in catalog, paste a TierMaker `/list/` or `/create/` URL, or choose
-an image folder. Hosted boards prefer matched wiki image URLs, retain TierMaker images as a remote
-fallback, and use the browser image library as the final fallback.
+an image folder. Hosted boards prefer TierForge's catalog assets, then the source wiki, then a
+retained TierMaker image, and finally the browser image library.
 
 The local runtime additionally offers these image modes:
 
 - **Remote**: leave image URLs online. Fastest, but requires the source host.
-- **Local files**: download into `Images/`. Best for normal use; re-import manually to refresh.
+- **Local files**: download into the relevant folder under `Images/`. Catalog images are maintained
+  under `Images/catalogs/`; ad-hoc source imports go under `Images/imports/`.
 - **Embedded**: put base64 image data inside the Board. Portable, but produces large JSON files.
 
 The **Slay the Spire 2 cards/relics** shortcuts use the bundled wiki catalogs when hosted and can

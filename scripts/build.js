@@ -13,7 +13,9 @@ await Promise.all([
     '<meta name="tierforge-runtime" content="static">\n</head>')),
   copyFile(path.join(root, 'app.css'), path.join(output, 'app.css')),
   copyFile(path.join(root, 'app.js'), path.join(output, 'app.js')),
+  copyFile(path.join(root, 'png-metadata.js'), path.join(output, 'png-metadata.js')),
   cp(path.join(root, 'catalogs'), path.join(output, 'catalogs'), { recursive: true }),
+  cp(path.join(root, 'Images', 'catalogs'), path.join(output, 'Images', 'catalogs'), { recursive: true }),
 ]);
 
 process.stdout.write('Built Cloudflare static assets in public/\n');

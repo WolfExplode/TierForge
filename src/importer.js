@@ -354,8 +354,8 @@ export async function importSource(url, options = {}) {
       ? `Found ${wikiItems.length} wiki ${itemType}; ${cards.length} match the current board`
       : `Found ${cards.length} ${itemType}`);
     await materializeImages(cards, mode, {
-      directory: path.join(options.root, 'Images', 'sts2', isRelicList ? 'relics' : ''),
-      linkPrefix: isRelicList ? 'Images/sts2/relics' : 'Images/sts2',
+      directory: path.join(options.root, 'Images', 'catalogs', 'slay-the-spire-2', isRelicList ? 'relics' : 'cards'),
+      linkPrefix: `Images/catalogs/slay-the-spire-2/${isRelicList ? 'relics' : 'cards'}`,
       onlyMissing: options.onlyMissing,
     }, log);
     const title = decodeHtml(/<title>([^<]*)<\/title>/i.exec(page)?.[1] || '').trim()
@@ -391,7 +391,8 @@ export async function importSource(url, options = {}) {
   log(`Found ${result.items.length} items`);
   for (const item of result.items) item.img = item.src;
   await materializeImages(result.items, mode, {
-    directory: path.join(options.root, 'Images', 'tiermaker'), linkPrefix: 'Images/tiermaker',
+    directory: path.join(options.root, 'Images', 'imports', 'tiermaker'),
+    linkPrefix: 'Images/imports/tiermaker',
     onlyMissing: options.onlyMissing,
   }, log);
   return finishPack({ items: result.items, templateCode, title: title || pageTitle(result.page) || template,

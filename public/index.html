@@ -162,25 +162,29 @@
 <dialog id="dlgExport">
   <h3>Export</h3>
   <div class="dbody">
-    <div class="row"><button id="expJson" class="primary">Board JSON</button>
-      <button id="expPng">PNG image</button>
-      <label>Resolution <select id="pngScale" aria-label="PNG export resolution">
-        <option value="1">Standard (1×)</option>
-        <option value="2">High (2×)</option>
-        <option value="4" selected>Very high (4×)</option>
-        <option value="6">Ultra (6×)</option>
+    <section class="export-primary">
+      <div><div class="export-title">Shareable PNG</div>
+        <div class="muted import-caption">Includes the board data. Share the original file, then drag it back into TierForge to edit.</div></div>
+      <label class="export-resolution">Size <select id="pngScale" aria-label="PNG export resolution">
+        <option value="1">1×</option><option value="2">2×</option>
+        <option value="4" selected>4×</option><option value="6">6×</option>
       </select></label>
-      <button id="expMd">Markdown</button>
-      <button id="expCsv">CSV</button>
-      <button id="expEmbed">Embed all images (offline pack)</button>
-      <button id="expTm">Back to TierMaker</button></div>
-    <div class="note">PNG export needs every image to be CORS-clean. Remote TierMaker images are
-      routed through an image proxy automatically; if that fails, run
-      <strong>Embed all images</strong> first.</div>
-    <div id="explog" ></div>
-    <textarea id="expout" style="min-height:220px" spellcheck="false"></textarea>
+      <button id="expPng" class="primary">Download PNG</button>
+    </section>
+    <section class="import-section">
+      <div class="import-section-title">Other formats</div>
+      <div class="export-actions">
+        <button id="expJson">Board JSON</button><button id="expMd">Markdown</button>
+        <button id="expCsv">CSV</button><button id="expTm">TierMaker</button>
+      </div>
+    </section>
+    <details class="import-options"><summary>Advanced</summary>
+      <div class="option-list"><button id="expEmbed">Embed remote images into board data</button></div>
+    </details>
+    <div id="explog" class="export-status" hidden></div>
+    <textarea id="expout" class="export-output" spellcheck="false" hidden></textarea>
   </div>
-  <div class="dfoot"><button id="expCopy">Copy</button><button onclick="dlgExport.close()">Close</button></div>
+  <div class="dfoot"><button id="expCopy" hidden>Copy</button><button onclick="dlgExport.close()">Close</button></div>
 </dialog>
 
 <!-- ============ BOARDS DIALOG ============ -->
@@ -239,6 +243,7 @@
   <div class="dfoot"><button onclick="dlgHelp.close()">Close</button></div>
 </dialog>
 
+<script src="png-metadata.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
