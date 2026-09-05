@@ -4,6 +4,10 @@ TierForge is a local-first tier-list builder. It imports TierMaker lists and sup
 keeps boards as ordinary JSON files, caches images locally, and exports PNG, Markdown, CSV, or a
 TierMaker remix.
 
+# Try it out at:
+
+https://tierforge.lilacsummons.xyz/
+
 ## Start
 
 Double-click `TierForge.cmd`, or run:
@@ -11,19 +15,6 @@ Double-click `TierForge.cmd`, or run:
 ```powershell
 npm run serve
 ```
-
-TierForge requires Node.js 20 or newer and has no package dependencies. It opens
-<http://127.0.0.1:8777/> and stores data beside the application:
-
-```text
-Saved/                                      named boards and _autosave.tierforge.json
-Images/catalogs/slay-the-spire-2/cards/     hosted card catalog assets
-Images/catalogs/slay-the-spire-2/relics/    hosted relic catalog assets
-Images/imports/tiermaker/                   local TierMaker download cache
-```
-
-Use `npm run serve -- --no-browser` to avoid opening a browser, or
-`npm run serve -- --port 9000` to choose another port.
 
 ## Deploy to Cloudflare Workers
 
@@ -90,7 +81,7 @@ the bookmarklet under **Import → Grab from page** when a remix cannot be read 
 bookmarklet link to the bookmarks bar, or use **Copy bookmark code** and paste it into a new
 bookmark's URL field. Run it on the loaded TierMaker page, then paste its output back into TierForge.
 
-## Everyday controls
+## Controls
 
 - Click tiles to select; Shift-click selects a range.
 - Drag one selected tile to move the full selection.
@@ -102,20 +93,3 @@ bookmark's URL field. Run it on the loaded TierMaker page, then paste its output
 
 Search terms are ANDed. Filters include `tag:starter`, `tier:A`, `note:vulnerable`, `-word`, and
 quoted phrases.
-
-## Development
-
-```powershell
-npm test
-npm run check
-```
-
-The modules are deliberately framework-free:
-
-- `app.js` and `app.css` implement the browser experience.
-- `src/importer.js` fetches sources, parses items and materializes images.
-- `src/server.js` serves files, manages import jobs, and persists Boards atomically.
-- `test/` verifies the stable parser and HTTP interfaces.
-
-The Board format remains version 1 for compatibility with existing `.tierforge.json` files.
-Architectural vocabulary is recorded in `CONTEXT.md`; decisions live in `docs/adr/`.
