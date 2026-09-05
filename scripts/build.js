@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,7 @@ await Promise.all([
     '<meta name="tierforge-runtime" content="static">\n</head>')),
   copyFile(path.join(root, 'app.css'), path.join(output, 'app.css')),
   copyFile(path.join(root, 'app.js'), path.join(output, 'app.js')),
+  cp(path.join(root, 'catalogs'), path.join(output, 'catalogs'), { recursive: true }),
 ]);
 
 process.stdout.write('Built Cloudflare static assets in public/\n');

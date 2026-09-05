@@ -5,6 +5,52 @@ const TILE_SIZE=96;
 const icon=name=>`<svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-${name}"></use></svg>`;
 const movementArrow=direction=>`<svg class="movement-arrow ${direction}" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M5 31 24 17l19 14"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const BROWSER_IMAGE_PREFIX='tierforge-image:';
+const browserImageUrls=new Map();
+const isBrowserImage=src=>String(src||'').startsWith(BROWSER_IMAGE_PREFIX);
+const itemImageCandidates=it=>[it?.img,it?.fallbackImg,it?.localImg].filter((src,index,list)=>src&&list.indexOf(src)===index);
+
+let imageDbPromise=null;
+function openImageDb(){
+  if(imageDbPromise)return imageDbPromise;
+  imageDbPromise=new Promise((resolve,reject)=>{
+    if(!globalThis.indexedDB)return reject(new Error('This browser does not provide IndexedDB'));
+    const request=indexedDB.open('tierforge-images',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('images',{keyPath:'path'});
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error||new Error('Could not open browser image storage'));
+  });
+  return imageDbPromise;
+}
+async function browserImageRecord(ref){
+  const path=decodeURIComponent(String(ref).slice(BROWSER_IMAGE_PREFIX.length));
+  const db=await openImageDb();
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction('images').objectStore('images').get(path);
+    request.onsuccess=()=>resolve(request.result||null);
+    request.onerror=()=>reject(request.error);
+  });
+}
+async function browserImageUrl(ref){
+  if(browserImageUrls.has(ref))return browserImageUrls.get(ref);
+  const record=await browserImageRecord(ref);
+  if(!record?.blob)return '';
+  const url=URL.createObjectURL(record.blob); browserImageUrls.set(ref,url); return url;
+}
+function attachItemImage(img,it){
+  const candidates=itemImageCandidates(it).flatMap(src=>isRemote(src)?[corsUrl(src),src]:[src]);
+  let index=0;
+  const next=async()=>{
+    while(index<candidates.length){
+      const candidate=candidates[index++];
+      try{ const src=isBrowserImage(candidate)?await browserImageUrl(candidate):candidate;
+        if(src){ img.style.display=''; img.src=src; return; } }
+      catch(e){}
+    }
+    img.style.display='none'; img.parentNode?.classList.add('noimg');
+  };
+  img.onerror=next; next();
+}
 
 /* TierMaker's stock row palette, indexed by the colour number in templateCode */
 const TM_COLORS=['#ff7f7f','#ffbf7f','#ffdf7f','#ffff7f','#bfff7f','#7fff7f','#7fffff','#7fbfff','#7f7fff','#ff7fff'];
@@ -263,15 +309,16 @@ function itemNode(id){
   else if(positionShift)changes.push(`${comparison.other.name} moves this ${positionDirection==='left'?'ahead of':'behind'} ${positionShift} shared item${positionShift===1?'':'s'}`);
   el.title=it.name+(it.notes?'\n'+it.notes:'')+(changes.length?`\n${changes.join('\n')}`:'');
   const meta=[(it.tags||[]).join(', '),it.notes||''].filter(Boolean).join(' · ');
-  el.innerHTML=(it.img?`<img src="${esc(it.img)}" alt="${esc(it.name)}" loading="lazy"
-      onerror="this.style.display='none';this.parentNode.classList.add('noimg')">`:'')
+  const hasImage=itemImageCandidates(it).length>0;
+  el.innerHTML=(hasImage?`<img alt="${esc(it.name)}" loading="lazy">`:'')
     +`<span class="badge">●</span>`
     +(statusChange?`<span class="rank-shift vertical status ${statusDirection}" aria-label="${esc(changes[0])}">${movementArrow(statusDirection)}<b>${statusChange==='ranked'?'R':'U'}</b></span>`:'')
     +(tierShift?`<span class="rank-shift vertical ${tierDirection}" aria-label="${esc(changes[0])}">${movementArrow(tierDirection)}<b>${tierShift}</b></span>`:'')
     +(reorderedShift?`<span class="rank-shift horizontal reordered" aria-label="${esc(changes[changes.length-1])}"><b>↔${reorderedShift}</b></span>`:'')
     +(positionShift?`<span class="rank-shift horizontal ${positionDirection}" aria-label="${esc(changes[changes.length-1])}">${movementArrow(positionDirection)}<b>${positionShift}</b></span>`:'')
     +`<span class="cap">${esc(it.name)}${meta?`<span class="meta"> — ${esc(meta)}</span>`:''}</span>`;
-  if(!it.img) el.style.cssText+='background:#2a3040;display:flex;align-items:center;justify-content:center';
+  if(hasImage)attachItemImage(el.querySelector('img'),it);
+  else el.style.cssText+='background:#2a3040;display:flex;align-items:center;justify-content:center';
   return el;
 }
 function fillDrop(node,ids){ const f=document.createDocumentFragment();
@@ -546,7 +593,7 @@ function closeInsp(){ $('#insp').classList.remove('on'); }
 function openInsp(id){
   const it=S.items[id]; if(!it)return; const p=$('#insp'); p.classList.add('on');
   p.innerHTML=`
-    ${it.img?`<img src="${esc(it.img)}">`:''}
+    ${itemImageCandidates(it).length?`<img>`:''}
     <label>Name</label><input id="i-name" value="${esc(it.name)}">
     <label>Tags (comma separated)</label><input id="i-tags" value="${esc((it.tags||[]).join(', '))}">
     <label>Notes — searchable</label><textarea id="i-notes" style="min-height:90px">${esc(it.notes||'')}</textarea>
@@ -555,6 +602,7 @@ function openInsp(id){
     <div class="row"><button id="i-save" class="primary">Save</button>
       <button id="i-del" class="danger">Delete item</button>
       <div class="spacer"></div><button id="i-close" class="ghost">✕</button></div>`;
+  if(p.querySelector('img'))attachItemImage(p.querySelector('img'),it);
   $('#i-close').onclick=closeInsp;
   $('#i-del').onclick=()=>{ snapshot(); delete S.items[id]; removeIds([id]); closeInsp(); persist(); render(); };
   $('#i-save').onclick=()=>{ snapshot();
@@ -705,23 +753,17 @@ $('#fileinput').onchange=e=>addFiles([...e.target.files]);
 $('#btnHelp').onclick=()=>dlgHelp.showModal();
 $('#btnSettings').onclick=e=>{ e.stopPropagation(); $('#settingsMenu').hidden=!$('#settingsMenu').hidden; };
 document.addEventListener('click',e=>{ if(!e.target.closest('#settingsWrap'))$('#settingsMenu').hidden=true; });
-$('#btnImport').onclick=async()=>{ dlgImport.showModal(); refreshHelperState(); renderGameSources(); };
+$('#btnImport').onclick=async()=>{ dlgImport.showModal(); await refreshHelperState(); renderGameSources(); };
 async function refreshHelperState(){
   const el=$('#helperstate'); el.textContent='Checking for the local runtime…';
   helperBase=await findHelper();
   updateRuntimeStatus();
+  $('#localimgsrow').hidden=!helperBase;
   if(helperBase){ el.innerHTML=`<b style="color:var(--ok)">Local runtime connected</b> (${esc(helperBase)}).
-    Paste any <code>tiermaker.com/list/…</code> or <code>/create/…</code> link — it fetches and
-    rebuilds tiers, colours, images and placements directly. The Slay the Spire 2 button below
-    imports every card or relic from the matching wiki list straight into the pool. Boards also now save to
-    this folder's <code>Saved/</code> directory instead of the browser.`; }
-  else { el.innerHTML=`<b style="color:var(--accent2)">No local runtime.</b> TierMaker builds its item
-    list in JavaScript and blocks readers, and the Slay the Spire 2 wiki blocks plain browser
-    fetches outright, so public proxies often come back empty. For a reliable import — and for
-    boards to save to disk at all—run <code>TierForge.cmd</code> (or <code>npm run serve</code>)
-    and open the page it gives you, or use the
-    bookmarklet on the <b>Grab from page</b> tab for TierMaker. Trying the proxies is still
-    worth a shot.`; }
+    Full URL import and filesystem image storage are available.`; }
+  else { el.innerHTML=`<b style="color:var(--ok)">Hosted mode.</b> Built-in catalogs use wiki images.
+    For other TierMaker lists, paste a URL or use <b>Grab from page</b>.`;
+    $('#localimgs').checked=false; }
 }
 $('#btnExport').onclick=()=>dlgExport.showModal();
 $('#btnBoards').onclick=()=>{ renderBoards(); dlgBoards.showModal(); };
@@ -731,7 +773,8 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.cl
 
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.display='block';
   clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display='none',2200); }
-function log(msg){ const l=$('#log'); l.textContent+=msg+'\n'; l.scrollTop=l.scrollHeight; }
+function log(msg){ const l=$('#log'); l.hidden=false; l.textContent+=msg+'\n'; l.scrollTop=l.scrollHeight; }
+function clearLog(){ const l=$('#log'); l.textContent=''; l.hidden=true; }
 
 /* ============================ FILE DROP ============================ */
 let dragDepth=0;
@@ -755,6 +798,48 @@ async function addFiles(files){ if(!files.length)return; snapshot();
     const id=uid(); S.items[id]={id,name:prettyName(f.name),tags:[],notes:'',img:url,src:f.name};
     S.pool.push(id); }
   persist(); render(); toast(`Added ${files.length} image${files.length===1?'':'s'}`); }
+
+async function storeImageFolder(files){
+  files=files.filter(file=>file.type.startsWith('image/')||/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(file.name));
+  if(!files.length)return toast('That folder contains no supported images');
+  const db=await openImageDb();
+  const rootName=(files[0].webkitRelativePath||'').split('/')[0];
+  const records=files.map(file=>{
+    let relative=(file.webkitRelativePath||file.name).replaceAll('\\','/').replace(/^\/+/, '');
+    if(rootName&&relative.startsWith(rootName+'/'))relative=relative.slice(rootName.length+1);
+    return {path:relative||file.name,name:file.name,type:file.type,mtime:file.lastModified,blob:file};
+  });
+  await new Promise((resolve,reject)=>{
+    const transaction=db.transaction('images','readwrite'), store=transaction.objectStore('images');
+    records.forEach(record=>store.put(record));
+    transaction.oncomplete=resolve;
+    transaction.onerror=()=>reject(transaction.error||new Error('Could not store the image folder'));
+    transaction.onabort=()=>reject(transaction.error||new Error('Image folder import was cancelled'));
+  });
+  navigator.storage?.persist?.().catch(()=>{});
+  const byName={};
+  records.forEach(record=>{
+    const stem=record.name.replace(/\.[^.]+$/,'');
+    [stem,stem.replace(/^[^_]+_/,'')].flatMap(sourceNameKeys)
+      .forEach(key=>{ if(key&&!byName[key])byName[key]=record; });
+  });
+  let matched=0; snapshot();
+  Object.values(S.items).forEach(it=>{
+    const record=sourceNameKeys(it.name).map(key=>byName[key]).find(Boolean);
+    if(!record)return;
+    it.localImg=BROWSER_IMAGE_PREFIX+encodeURIComponent(record.path); matched++;
+  });
+  persist(); render();
+  log(`Stored ${records.length} browser image${records.length===1?'':'s'}; matched ${matched} board item${matched===1?'':'s'}.`);
+  toast(`Stored ${records.length} images · matched ${matched}`);
+}
+
+$('#btnImageFolder').onclick=()=>$('#imageFolderInput').click();
+$('#imageFolderInput').onchange=async e=>{
+  const files=[...e.target.files]; e.target.value='';
+  try{ await storeImageFolder(files); }
+  catch(error){ log('Image folder error: '+error.message); toast('Could not store that image folder'); }
+};
 
 /* ============================ PERSISTENCE ============================
    The local Node runtime stores boards as files. A deployed/static copy falls
@@ -1096,7 +1181,8 @@ function mergeItemsIntoPool(pack){
     const img=it.img||it.src||'';
     if(img && Object.values(S.items).some(i=>i.img===img||i.src===img)) return;
     const id=uid();
-    S.items[id]={id,name:it.name||nameFromUrl(img),tags:it.tags||[],notes:it.notes||'',img,src:it.src||img};
+    S.items[id]={id,name:it.name||nameFromUrl(img),tags:it.tags||[],notes:it.notes||'',img,
+      fallbackImg:it.fallbackImg||'',localImg:it.localImg||'',src:it.src||img};
     S.pool.push(id); added++;
   });
   return added;
@@ -1141,21 +1227,16 @@ function renderGameSources(){
   const wrap=$('#gameSources'); if(!wrap)return;
   const detected=detectGameSource(S);
   wrap.innerHTML=GAME_SOURCES.map(g=>`
-    <div class="row" style="gap:6px;margin-top:2px">
-      <button data-imp="${g.id}" class="${g===detected?'primary':'ghost'}">${esc(g.name)}: import all ${g.itemType}</button>
-    </div>`).join('')+`
-    <div class="row" style="gap:6px;margin-top:2px">
-      <button data-relink-all class="ghost">Relink items</button>
-      <span class="muted" style="font-size:12px">checks saved images, cards, and relics${detected?' · ↩ detected from the board title':''}</span>
-    </div>`;
+    <div class="row"><button data-imp="${g.id}" class="${g===detected?'primary':'ghost'}">${g.itemType==='relics'?'Relics':'Cards'}</button></div>`).join('')+`
+    <div class="row"><button data-relink-all class="ghost">Match images</button></div>`;
   $$('button[data-imp]',wrap).forEach(b=>b.onclick=()=>quickWikiImport(GAME_SOURCES.find(g=>g.id===b.dataset.imp)));
   $('[data-relink-all]',wrap).onclick=()=>relinkItems();
 }
 
 function quickWikiImport(src){
   $('#tmurl').value=src.wiki;
-  /* Prefer a refreshable local cache for the large wiki card set. */
-  $('#localimgs').checked=true; $('#embedimgs').checked=false;
+  /* Prefer remote wiki links in hosted mode and a refreshable file cache locally. */
+  $('#localimgs').checked=!!helperBase; $('#embedimgs').checked=false;
   $('#btnFetch').click();
 }
 $('#embedimgs').onchange=()=>{ if($('#embedimgs').checked) $('#localimgs').checked=false; };
@@ -1165,10 +1246,63 @@ $('#localimgs').onchange=()=>{ if($('#localimgs').checked) $('#embedimgs').check
  * already linked locally are retained; other local files and wiki entries are
  * matched by punctuation-insensitive name. Only relevant missing wiki images
  * are downloaded. Tags, notes, names and placements stay put. */
+async function loadBundledCatalog(src){
+  const response=await fetch(`catalogs/${src.id}.json`);
+  if(!response.ok)throw new Error(`catalog unavailable (HTTP ${response.status})`);
+  const catalog=await response.json();
+  return {title:`${src.name} ${src.itemType}`,source:src.wiki,items:catalog.items||[],tiers:[],pool:[]};
+}
+
+async function listBrowserImages(){
+  const db=await openImageDb();
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction('images').objectStore('images').getAll();
+    request.onsuccess=()=>resolve(request.result||[]);
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+async function relinkHostedItems(sources){
+  clearLog();
+  const items=Object.values(S.items);
+  if(!items.length)return toast('There are no items to match.');
+  snapshot();
+  let localMatches=0,wikiMatches=0;
+  try{
+    const images=await listBrowserImages(), localByName={};
+    images.forEach(record=>{
+      const stem=record.name.replace(/\.[^.]+$/,'');
+      [stem,stem.replace(/^[^_]+_/,'')].flatMap(sourceNameKeys)
+        .forEach(key=>{ if(key&&!localByName[key])localByName[key]=record; });
+    });
+    items.forEach(it=>{
+      const record=sourceNameKeys(it.name).map(key=>localByName[key]).find(Boolean);
+      if(record){ it.localImg=BROWSER_IMAGE_PREFIX+encodeURIComponent(record.path); localMatches++; }
+    });
+  }catch(e){ log('Browser image library unavailable: '+e.message); }
+  for(const src of (Array.isArray(sources)?sources:[sources])){
+    try{
+      const pack=await loadBundledCatalog(src), byName={};
+      pack.items.forEach(entry=>sourceNameKeys(entry.name).forEach(key=>{byName[key]=entry;}));
+      items.forEach(it=>{
+        const wiki=sourceNameKeys(it.name).map(key=>byName[key]).find(Boolean);
+        if(!wiki)return;
+        const wikiImage=wiki.img||wiki.src;
+        if(!wikiImage)return;
+        if(it.img&&it.img!==wikiImage&&/tiermaker\.com/i.test(it.img))it.fallbackImg=it.img;
+        it.img=wikiImage; wikiMatches++;
+      });
+    }catch(e){ log(`${src.itemType} catalog unavailable: ${e.message}`); }
+  }
+  persist(); render();
+  log(`Matched ${wikiMatches} wiki image${wikiMatches===1?'':'s'} and ${localMatches} browser image fallback${localMatches===1?'':'s'}.`);
+  toast(`Matched ${wikiMatches} wiki · ${localMatches} local`);
+}
+
 async function relinkItems(sources=GAME_SOURCES){
   if(helperBase===null) helperBase=await findHelper();
-  if(!helperBase) return toast('Needs the local runtime—run TierForge.cmd, then reload.');
-  $('#log').textContent='';
+  if(!helperBase) return relinkHostedItems(sources);
+  clearLog();
   const items=Object.values(S.items);
   if(!items.length) return toast('There are no items to relink.');
   toast(`Scanning ${items.length} board item(s)…`);
@@ -1223,7 +1357,10 @@ async function relinkItems(sources=GAME_SOURCES){
         const saved=[]; const failed=[];
         matches.forEach(it=>{
           const w=sourceNameKeys(it.name).map(key=>savedByName[key]).find(Boolean);
-          if(w){ it.img=w.img; it.src=w.src||w.img||it.src; saved.push(it); }
+          if(w){
+            if(it.img&&it.img!==w.img&&/tiermaker\.com/i.test(it.img))it.fallbackImg=it.img;
+            it.img=w.img; it.src=w.src||w.img||it.src; saved.push(it);
+          }
           else failed.push(it);
         });
         wikiMatches.push(...saved); missed.push(...failed);
@@ -1253,20 +1390,25 @@ async function autoRelinkImportedItems(){
 
 $('#btnFetch').onclick=async()=>{
   const raw=$('#tmurl').value.trim(); if(!raw)return toast('Paste a URL first');
-  $('#log').textContent=''; const btn=$('#btnFetch'); btn.disabled=true;
+  clearLog(); const btn=$('#btnFetch'); btn.disabled=true;
   const url=raw.split('#')[0].replace(/^http:/,'https:');
   try{
     if(/slaythespire\.wiki\.gg\//i.test(url)){
       const wikiItemType=/relics?_list/i.test(url)?'relics':'cards';
+      const gameSource=GAME_SOURCES.find(src=>src.itemType===wikiItemType);
       if(helperBase===null) helperBase=await findHelper();
-      if(!helperBase) throw new Error('This needs the local runtime—run TierForge.cmd from the '
-        +'TierForge folder, then reload this page. The wiki blocks plain browser fetches.');
-      log('Using local runtime at '+helperBase+' …');
-      const pack=await importViaHelper(helperBase,url,$('#embedimgs').checked,log,$('#localimgs').checked);
+      let pack;
+      if(helperBase){
+        log('Using local runtime at '+helperBase+' …');
+        pack=await importViaHelper(helperBase,url,$('#embedimgs').checked,log,$('#localimgs').checked);
+      }else{
+        log(`Loading bundled ${wikiItemType} catalog…`);
+        pack=await loadBundledCatalog(gameSource);
+      }
       if($('#mergeimp').checked){ snapshot(); const added=mergeItemsIntoPool(pack);
         log(`Merged ${added} new ${wikiItemType} into the pool (${pack.items.length-added} already present).`); }
       else { S=normalize(pack); log(`Imported ${pack.items.length} ${wikiItemType}.`); }
-      sel.clear(); persist(); render(); await autoRelinkImportedItems();
+      sel.clear(); persist(); render(); clearLog(); dlgImport.close();
       return toast('Imported '+pack.items.length+' '+wikiItemType);
     }
 
@@ -1325,11 +1467,7 @@ $('#btnFetch').onclick=async()=>{
     toast('Imported '+chars.length+' items');
   }catch(err){
     log('ERROR: '+err.message);
-    log('');
-    log('TierMaker builds its item list in JavaScript and blocks readers, so proxies');
-    log('often come back empty. Two things that always work:');
-    log('  1. npm run serve   (then reload this page from it)');
-    log('  2. the bookmarklet on the "Grab from page" tab');
+    if(/tiermaker\.com/i.test(url))log('Use “Grab from page” if TierMaker blocks the URL import.');
   }
   finally{ btn.disabled=false; }
 };
@@ -1349,6 +1487,7 @@ $('#btnParsePaste').onclick=()=>{
   if(!chars.length) $('#grabhint').textContent='Tiers only — no items in that paste.';
   const title=cleanTitle((html.match(/<title>([^<]*)<\/title>/i)||[])[1]);
   buildFrom(chars,tc,$('#mergepaste').checked,{title});
+  autoRelinkImportedItems().catch(error=>log('Image matching failed: '+error.message));
   toast(`Parsed ${chars.length} items${tc?` + ${tc.tiers.length} tiers`:''}`);
 };
 
@@ -1426,6 +1565,7 @@ function loadJSON(text,quiet){
       : (o.templateCode?parseTemplateCode('templateCode = "'+o.templateCode+'"'):null);
     buildFrom(o.chars.filter(c=>c.src).map(c=>({...c,name:c.name||nameFromUrl(c.src)})),tc,
       $('#mergepaste')?.checked||false,{url:o.url,title:cleanTitle(o.title)});
+    autoRelinkImportedItems().catch(error=>log('Image matching failed: '+error.message));
     dlgImport.close();
     return toast(`Imported ${o.chars.length} items`+(tc?` into ${tc.tiers.length} tiers`:''));
   }
@@ -1443,7 +1583,8 @@ function normalize(o){
   const arr=Array.isArray(o.items)?o.items:Object.values(o.items);
   arr.forEach(it=>{ const id=it.id||uid();
     st.items[id]={id,name:it.name||nameFromUrl(it.img||''),tags:it.tags||[],
-      notes:it.notes||'',img:it.img||it.src||'',src:it.src||'',tmkey:it.tmkey||it.key||''};
+      notes:it.notes||'',img:it.img||it.src||'',fallbackImg:it.fallbackImg||'',
+      localImg:it.localImg||'',src:it.src||'',tmkey:it.tmkey||it.key||''};
     map[it.id||'']=id; if(it.key)map[it.key]=id; if(it.tmkey)map[it.tmkey]=id; });
   const tierMap={};
   st.tiers=(o.tiers||[]).map((t,i)=>{ const id=uid(); if(t.id)tierMap[t.id]=id;
@@ -1541,15 +1682,27 @@ $('#expTm').onclick=()=>{
 /* image proxy that returns CORS headers, so canvas stays untainted */
 const isRemote=u=>/^https?:\/\//i.test(u);
 const corsUrl=u=>isRemote(u)
-  ? 'https://images.weserv.nl/?url='+encodeURIComponent(u.replace(/^https?:\/\//,'')) : u;
+  ? (document.querySelector('meta[name="tierforge-runtime"][content="static"]')
+      ? '/image?url='+encodeURIComponent(u)
+      : 'https://images.weserv.nl/?url='+encodeURIComponent(u.replace(/^https?:\/\//,''))) : u;
 function loadImg(src,anon){ return new Promise(res=>{ const i=new Image();
   // crossOrigin on a file:// or relative src throws "unique security origin" - only set it
   // when the request really is cross-origin.
   if(anon) i.crossOrigin='anonymous';
   i.onload=()=>res(i); i.onerror=()=>res(null); i.src=src; }); }
-async function loadForCanvas(src){                  // proxy first: remote hosts rarely send CORS
-  if(!isRemote(src)) return loadImg(src,false);     // data:, relative, or file:// - load as-is
-  return (await loadImg(corsUrl(src),true)) || (await loadImg(src,true)); }
+async function loadForCanvas(source){
+  const candidates=typeof source==='object'?itemImageCandidates(source):[source];
+  for(const candidate of candidates){
+    let src=candidate;
+    try{ if(isBrowserImage(src))src=await browserImageUrl(src); }catch(e){ continue; }
+    if(!src)continue;
+    const image=isRemote(src)
+      ? (await loadImg(corsUrl(src),true))||(await loadImg(src,true))
+      : await loadImg(src,false);
+    if(image)return image;
+  }
+  return null;
+}
 
 $('#expEmbed').onclick=()=>embedAll(m=>{ $('#explog').textContent=m; });
 async function embedAll(report=()=>{}){
@@ -1598,12 +1751,15 @@ $('#expPng').onclick=async()=>{
       const it=S_.items[r.items[k]]; if(!it)continue;
       const x=labelw+pad+(k%perRow)*(tileSize+pad), yy=y+pad+Math.floor(k/perRow)*(tileSize+pad);
       ctx.fillStyle='#000'; ctx.fillRect(x,yy,tileSize,tileSize);
-      if(it.img){ if(!cache.has(it.img))cache.set(it.img,await loadForCanvas(it.img));
-        const img=cache.get(it.img);
+      let drawnImage=null;
+      if(itemImageCandidates(it).length){ const imageKey=itemImageCandidates(it).join('|');
+        if(!cache.has(imageKey))cache.set(imageKey,await loadForCanvas(it));
+        const img=cache.get(imageKey);
         if(img){ const s=Math.min(tileSize/img.width,tileSize/img.height);
-          ctx.drawImage(img,x+(tileSize-img.width*s)/2,yy+(tileSize-img.height*s)/2,img.width*s,img.height*s); }
+          ctx.drawImage(img,x+(tileSize-img.width*s)/2,yy+(tileSize-img.height*s)/2,img.width*s,img.height*s);
+          drawnImage=img; }
         else failed++; }
-      if(!it.img||!cache.get(it.img)){ ctx.fillStyle='#e7eaf0'; ctx.font='11px Segoe UI,sans-serif';
+      if(!drawnImage){ ctx.fillStyle='#e7eaf0'; ctx.font='11px Segoe UI,sans-serif';
         ctx.textAlign='center'; wrapText(ctx,it.name,x+tileSize/2,yy+tileSize/2,tileSize-6,12); ctx.textAlign='left'; }
       el.textContent='Drawing…';
     }

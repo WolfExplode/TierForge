@@ -92,15 +92,30 @@
   <div class="dbody">
     <div class="tabpane on" id="tab-url">
       <div id="helperstate" class="note">Checking for the local runtime…</div>
-      <input id="tmurl" placeholder="https://tiermaker.com/list/video-games/… or a slaythespire.wiki.gg page" spellcheck="false">
-      <label class="row" style="gap:6px"><input type="checkbox" id="embedimgs"> Download &amp; embed images as data URLs (offline-safe, enables PNG export — slower)</label>
-      <label class="row" style="gap:6px"><input type="checkbox" id="localimgs"> Download images to local files (refresh manually when the wiki updates)</label>
-      <label class="row" style="gap:6px"><input type="checkbox" id="mergeimp"> Merge into current board instead of replacing</label>
-      <label class="row" style="gap:6px"><input type="checkbox" id="autorelink" checked> Auto-relink imported items to saved images</label>
-      <div class="row"><button id="btnFetch" class="primary">Fetch &amp; import</button>
-        <span class="muted" style="font-size:12px">…or use the bookmarklet on the Grab tab — that one can't be blocked.</span></div>
-      <div id="gameSources"></div>
-      <div id="log"></div>
+      <div class="import-url-row">
+        <input id="tmurl" placeholder="Paste a TierMaker or supported wiki URL" spellcheck="false">
+        <button id="btnFetch" class="primary">Import URL</button>
+      </div>
+      <section class="import-section">
+        <div class="import-section-title">Built-in catalogs</div>
+        <div id="gameSources"></div>
+      </section>
+      <section class="import-section folder-import">
+        <div><div class="import-section-title">Your image library</div>
+          <div class="muted import-caption">Choose a folder once. Images are copied into this browser and matched by filename.</div></div>
+        <button id="btnImageFolder">Choose folder…</button>
+        <input id="imageFolderInput" type="file" accept="image/*" webkitdirectory directory multiple hidden>
+      </section>
+      <details class="import-options">
+        <summary>Import options</summary>
+        <div class="option-list">
+          <label class="row"><input type="checkbox" id="mergeimp"> Merge into current board</label>
+          <label class="row"><input type="checkbox" id="autorelink" checked> Match preferred image sources automatically</label>
+          <label class="row"><input type="checkbox" id="embedimgs"> Embed remote images for offline use</label>
+          <label class="row" id="localimgsrow"><input type="checkbox" id="localimgs"> Save images to the local runtime</label>
+        </div>
+      </details>
+      <div id="log" hidden></div>
     </div>
     <div class="tabpane" id="tab-grab">
       <div class="note"><b>The fallback that always works.</b> TierMaker builds its item list with
