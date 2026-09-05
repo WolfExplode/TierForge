@@ -36,13 +36,14 @@ npm install
 npm run deploy
 ```
 
-For a Git-connected Cloudflare Workers build, use:
+For a Git-connected Cloudflare Workers build, the committed `public/` artifact means the default
+settings work without a separate build phase:
 
-- Build command: `npm run build`
+- Build command: leave blank
 - Deploy command: `npx wrangler deploy`
 
-No environment variables, secrets, or Cloudflare resource bindings are required. Run
-`npm run dev` to preview the Worker locally.
+No environment variables, secrets, or Cloudflare resource bindings are required. Local
+`npm run dev` and `npm run deploy` commands rebuild `public/` automatically through Wrangler.
 
 ## Importing
 

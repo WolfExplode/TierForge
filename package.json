@@ -6,8 +6,8 @@
   "description": "Local-first tier-list builder and importer",
   "scripts": {
     "build": "node scripts/build.js",
-    "dev": "npm run build && wrangler dev",
-    "deploy": "npm run build && wrangler deploy",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "serve": "node src/server.js",
     "start": "npm run serve",
     "test": "node --test",

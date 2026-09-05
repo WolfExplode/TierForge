@@ -2,8 +2,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tierforge",
   "compatibility_date": "2026-09-05",
+  "build": {
+    "command": "npm run build",
+    "watch_dir": ["app.js", "app.css", "tierforge.html"]
+  },
   "assets": {
-    "directory": "./dist",
+    "directory": "./public",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page"
   }

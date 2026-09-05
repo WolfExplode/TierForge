@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const output = path.join(root, 'dist');
+const output = path.join(root, 'public');
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
@@ -15,4 +15,4 @@ await Promise.all([
   copyFile(path.join(root, 'app.js'), path.join(output, 'app.js')),
 ]);
 
-process.stdout.write('Built Cloudflare static assets in dist/\n');
+process.stdout.write('Built Cloudflare static assets in public/\n');
