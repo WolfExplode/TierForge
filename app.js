@@ -618,6 +618,100 @@ document.addEventListener('keydown',e=>{
 
 /* ============================ INSPECTOR ============================ */
 function closeInsp(){ $('#insp').classList.remove('on'); }
+let catalogImageReferencesPromise=null;
+function catalogImageReferences(){
+  if(!catalogImageReferencesPromise){
+    catalogImageReferencesPromise=Promise.allSettled(GAME_SOURCES.map(loadBundledCatalog)).then(results=>
+      results.flatMap(result=>result.status==='fulfilled'
+        ?result.value.items.map(item=>({value:item.img||'',name:item.name||''})):[]));
+  }
+  return catalogImageReferencesPromise;
+}
+async function knownImageReferences(){
+  const board=Object.values(S.items).flatMap(item=>[
+    {value:item.img||'',name:item.name||''},{value:item.localImg||'',name:item.name||''}
+  ]);
+  const local=helperBase?fetch(helperBase+'/images').then(async response=>{
+    if(!response.ok)throw new Error('Could not list local images');
+    return ((await response.json()).images||[]).map(value=>({value,name:''}));
+  }).catch(()=>[]):Promise.resolve([]);
+  const browser=listBrowserImages().then(records=>records.map(record=>({
+    value:BROWSER_IMAGE_PREFIX+encodeURIComponent(record.path),
+    name:record.metadata?.name||record.name||''
+  }))).catch(()=>[]);
+  const sources=(await Promise.all([local,browser,catalogImageReferences()])).flat();
+  const unique=new Map();
+  [...board,...sources].forEach(candidate=>{
+    if(!candidate.value)return;
+    const existing=unique.get(candidate.value);
+    if(!existing)unique.set(candidate.value,candidate);
+    else if(!existing.name&&candidate.name)existing.name=candidate.name;
+  });
+  return [...unique.values()];
+}
+const imagePathKey=value=>String(value).replaceAll('\\','/').toLowerCase()
+  .split('/').map(part=>part.replace(/[-_\s]+/g,'')).join('/');
+function imageSuggestionScore(candidate,query,itemName){
+  const value=String(candidate.value).replaceAll('\\','/').toLowerCase();
+  const typed=String(query).replaceAll('\\','/').toLowerCase();
+  const valueKey=imagePathKey(value), typedPathKey=imagePathKey(typed);
+  const itemKey=normName(itemName), candidateKey=normName(candidate.name||value.split('/').pop());
+  let score=Infinity;
+  if(typed){
+    if(value.startsWith(typed))score=value.length-typed.length;
+    else if(value.includes(typed))score=100+value.indexOf(typed);
+    else if(valueKey.startsWith(typedPathKey))score=25+valueKey.length-typedPathKey.length;
+    else if(valueKey.includes(typedPathKey))score=125+valueKey.indexOf(typedPathKey);
+    else { const typedKey=normName(typed.split('/').pop());
+      if(typedKey&&candidateKey.includes(typedKey))score=200+candidateKey.indexOf(typedKey); }
+  }else if(itemKey){
+    if(candidateKey===itemKey)score=0;
+    else if(candidateKey.includes(itemKey))score=20+candidateKey.indexOf(itemKey);
+  }
+  if(Number.isFinite(score)&&itemKey&&candidateKey.includes(itemKey))score-=10;
+  return score;
+}
+const IMAGE_SUGGESTION_MAX=5;
+function setupImageAutocomplete(input,it){
+  const suggestion=$('#image-suggestion'), inventory=knownImageReferences();
+  const hide=()=>{ suggestion.hidden=true; suggestion.replaceChildren(); delete input.dataset.suggestion; };
+  const accept=value=>{
+    const use=value??input.dataset.suggestion;
+    if(!use)return false;
+    input.value=use; hide(); return true;
+  };
+  const refresh=async()=>{
+    const query=input.value, candidates=await inventory;
+    if(!input.isConnected||input.value!==query)return;
+    const ranked=candidates.map(candidate=>({candidate,
+      score:imageSuggestionScore(candidate,query,it.name)}))
+      .filter(match=>Number.isFinite(match.score)&&match.candidate.value!==query)
+      .sort((a,b)=>a.score-b.score||a.candidate.value.length-b.candidate.value.length)
+      .slice(0,IMAGE_SUGGESTION_MAX);
+    if(!ranked.length)return hide();
+    input.dataset.suggestion=ranked[0].candidate.value;
+    suggestion.replaceChildren();
+    ranked.forEach(({candidate},i)=>{
+      const row=document.createElement('div'); row.className='image-suggestion-item';
+      if(i===0)row.classList.add('active');
+      const preview=document.createElement('img'); preview.alt='Suggested image preview';
+      const details=document.createElement('span'), hint=document.createElement('small'), path=document.createElement('code');
+      hint.textContent=i===0?'Press Tab to use':'Click to use'; path.textContent=candidate.value;
+      details.append(hint,path); row.append(preview,details); suggestion.append(row);
+      attachItemImage(preview,{img:candidate.value});
+      row.addEventListener('mousedown',event=>{ event.preventDefault(); if(accept(candidate.value))input.focus(); });
+    });
+    suggestion.hidden=false;
+  };
+  input.addEventListener('input',refresh);
+  input.addEventListener('focus',refresh);
+  input.addEventListener('keydown',event=>{
+    if(event.key==='Tab'&&accept()){event.preventDefault();}
+    else if(event.key==='Escape')hide();
+  });
+  input.addEventListener('blur',()=>setTimeout(hide,0));
+  refresh();
+}
 function openInsp(id){
   const it=S.items[id]; if(!it)return; const p=$('#insp'); p.classList.add('on');
   p.innerHTML=`
@@ -626,12 +720,16 @@ function openInsp(id){
     <label>Tags (comma separated)</label><input id="i-tags" value="${esc((it.tags||[]).join(', '))}">
     <label>Description — what it is or does</label><textarea id="i-description" style="min-height:74px">${esc(it.description||'')}</textarea>
     <label>Notes — searchable</label><textarea id="i-notes" style="min-height:90px">${esc(it.notes||'')}</textarea>
-    <label>Image URL</label><input id="i-img" value="${esc(it.img||'')}">
+    <label>Image URL</label><div class="image-url-field">
+      <input id="i-img" value="${esc(it.img||'')}" autocomplete="off" spellcheck="false"
+        aria-describedby="image-suggestion">
+      <div id="image-suggestion" hidden></div></div>
     <label>Source</label><div class="muted" style="font-size:11px;word-break:break-all">${esc(it.src||'—')}</div>
     <div class="row"><button id="i-save" class="primary">Save</button>
       <button id="i-del" class="danger">Delete item</button>
       <div class="spacer"></div><button id="i-close" class="ghost">✕</button></div>`;
   if(p.querySelector('img'))attachItemImage(p.querySelector('img'),it);
+  setupImageAutocomplete($('#i-img'),it);
   $('#i-close').onclick=closeInsp;
   $('#i-del').onclick=()=>{ snapshot(); delete S.items[id]; removeIds([id]); closeInsp(); persist(); render(); };
   $('#i-save').onclick=()=>{ snapshot();

@@ -198,6 +198,18 @@ body.lab-show .cap .meta,body.lab-hover .cap .meta{display:none}
 #insp img{width:100%;max-height:200px;object-fit:contain;background:#000;border-radius:6px}
 #insp label{font-size:12px;color:var(--dim);display:block;margin-top:4px}
 #insp input,#insp textarea{width:100%}
+.image-url-field{position:relative}
+#image-suggestion{display:flex;flex-direction:column;gap:4px;margin-top:4px;padding:4px;
+  background:var(--panel2);border:1px solid var(--accent);border-radius:6px}
+#image-suggestion[hidden]{display:none}
+#image-suggestion .image-suggestion-item{display:flex;align-items:center;gap:8px;padding:4px;
+  border-radius:4px;cursor:pointer}
+#image-suggestion .image-suggestion-item:hover,#image-suggestion .image-suggestion-item.active{background:var(--line)}
+#image-suggestion img{width:44px;height:44px;min-height:0;max-height:none;flex:none;
+  object-fit:contain;border-radius:4px;background:#000}
+#image-suggestion span{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px}
+#image-suggestion small{color:var(--accent)}
+#image-suggestion code{overflow:hidden;color:var(--dim);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- dialogs ---------- */
 dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;
