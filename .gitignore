@@ -1,5 +1,6 @@
 Saved/
 .playwright-cli/
+.playwright-mcp/
 # User-downloaded/imported images stay local. Curated catalog assets are
 # explicitly versioned and deployed with the site.
 Images/*

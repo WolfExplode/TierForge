@@ -62,6 +62,7 @@ const LABEL_MODES=new Set(['find','show','hover']);
 /* ============================ STATE ============================ */
 let S=null, sel=new Set(), lastClicked=null, undoStack=[], compareSubBoardId=null, comparisonState=null,
   draggedSubBoardId=null;
+let inspectorItemId=null;
 
 function storedLabelMode(){
   try{
@@ -617,7 +618,21 @@ document.addEventListener('keydown',e=>{
 });
 
 /* ============================ INSPECTOR ============================ */
-function closeInsp(){ $('#insp').classList.remove('on'); }
+function closeInsp(){ inspectorItemId=null; $('#insp').classList.remove('on'); }
+function commitInspector(){
+  const p=$('#insp'), id=inspectorItemId, it=id&&S.items[id];
+  if(!p?.classList.contains('on')||!it)return false;
+  const next={
+    name:$('#i-name').value.trim(), img:$('#i-img').value.trim(),
+    tags:$('#i-tags').value.split(',').map(s=>s.trim()).filter(Boolean),
+    description:$('#i-description').value.trim(), notes:$('#i-notes').value.trim()
+  };
+  const changed=it.name!==next.name||it.img!==next.img||
+    JSON.stringify(it.tags||[])!==JSON.stringify(next.tags)||
+    it.description!==next.description||it.notes!==next.notes;
+  if(!changed)return false;
+  snapshot(); Object.assign(it,next); return true;
+}
 let catalogImageReferencesPromise=null;
 function catalogImageReferences(){
   if(!catalogImageReferencesPromise){
@@ -714,6 +729,7 @@ function setupImageAutocomplete(input,it){
 }
 function openInsp(id){
   const it=S.items[id]; if(!it)return; const p=$('#insp'); p.classList.add('on');
+  inspectorItemId=id;
   p.innerHTML=`
     ${itemImageCandidates(it).length?`<img>`:''}
     <label>Name</label><input id="i-name" value="${esc(it.name)}">
@@ -732,11 +748,7 @@ function openInsp(id){
   setupImageAutocomplete($('#i-img'),it);
   $('#i-close').onclick=closeInsp;
   $('#i-del').onclick=()=>{ snapshot(); delete S.items[id]; removeIds([id]); closeInsp(); persist(); render(); };
-  $('#i-save').onclick=()=>{ snapshot();
-    it.name=$('#i-name').value.trim(); it.img=$('#i-img').value.trim();
-    it.tags=$('#i-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
-    it.description=$('#i-description').value.trim();
-    it.notes=$('#i-notes').value.trim(); persist(); render(); toast('Saved'); };
+  $('#i-save').onclick=()=>{ commitInspector(); persist(); render(); toast('Saved'); };
   p.querySelectorAll('input,textarea').forEach(el=>el.addEventListener('keydown',ev=>{
     if(ev.key==='Enter'&&el.tagName==='INPUT'){ ev.preventDefault(); $('#i-save').click(); } }));
 }
@@ -1104,8 +1116,11 @@ function updateRuntimeStatus(){ const el=$('#runtimeStatus'); if(!el)return;
   const available=helperBase||hasBrowserStorage;
   el.className='runtime-status '+(available?'online':'offline');
   el.innerHTML=`<i></i>${helperBase?'Saved to files':hasBrowserStorage?'Saved in browser':'Unsaved mode'}`; }
-function quickSave(){ const name=S.title||'Board';
-  saveBoard(name).then(ok=>toast(ok?'Saved board "'+name+'"':'Could not save this board')); }
+function quickSave(){
+  if(commitInspector())render();
+  const name=S.title||'Board';
+  saveBoard(name).then(ok=>toast(ok?'Saved board "'+name+'"':'Could not save this board'));
+}
 async function saveBoard(name){
   ensureSubBoards();
   storeActiveSubBoard();

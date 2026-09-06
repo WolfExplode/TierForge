@@ -47,7 +47,8 @@ header{display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:va
 #btnClearSearch:hover{background:var(--line);color:var(--fg)}
 #btnClearSearch[hidden]{display:none}
 #qcount{min-width:70px;font-variant-numeric:tabular-nums}
-#subboardTabs{display:flex;align-items:center;gap:8px;flex:1 1 520px;min-width:0;overflow-x:auto;
+#stat{flex:none;text-align:right;font-variant-numeric:tabular-nums}
+#subboardTabs{display:flex;align-items:center;gap:8px;flex:1 1 0;min-width:0;overflow-x:auto;
   scrollbar-width:thin;padding:1px 0}
 .subboard-tab{width:210px;min-width:150px;height:32px;position:relative;display:flex;align-items:center;gap:3px;
   padding:2px 3px 2px 10px;overflow:visible;background:transparent;border:1px solid var(--line);border-radius:6px}
