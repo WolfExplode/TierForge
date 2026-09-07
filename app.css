@@ -84,15 +84,42 @@ kbd{background:#2a3040;border:1px solid var(--line);border-bottom-width:2px;bord
 /* ---------- board ---------- */
 main{flex:1;overflow:hidden;position:relative}
 main.panning{cursor:grabbing}
-#canvas{padding:10px;display:flex;flex-direction:column;gap:14px;transform-origin:0 0;width:fit-content}
-#board{display:flex;flex-direction:column;gap:var(--gap);min-width:1500px;
+#canvas{position:relative;padding:10px;display:flex;flex-direction:column;gap:14px;transform-origin:0 0;width:fit-content}
+#board{position:relative;display:flex;flex-direction:column;gap:0;min-width:1500px;
   border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .tier-actions{display:flex;align-items:center;gap:6px;margin:5px 6px 6px}
 .add-tier{padding:3px 8px;font-size:12px}
 .tier{display:flex;min-height:104px;background:var(--panel);}
-.tier + .tier{border-top:1px solid var(--line)}
+/* The seam between two tiers carries no height of its own: linked tiers sit
+   flush, unlinked ones are parted by a hairline, and the toggle floats over the
+   boundary as an overlay that only appears on hover. */
+.tier-link-slot{position:relative;z-index:4;height:0;flex:none;display:grid;place-items:center start;
+  background:none;border:0;border-top:1px solid var(--line)}
+.tier-link-slot.linked{border-top:0}
+/* The seam has no height, so the toggle's row overflows below it — lift the
+   button by half its height to straddle the boundary. */
+.tier-link-slot .tier-link-button{margin-left:calc(var(--labelw)/2 - 14px);transform:translateY(-50%)}
+.tier-link-button{display:grid;place-items:center;width:28px;height:20px;padding:0;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--dim);cursor:pointer;
+  box-shadow:0 2px 7px rgba(0,0,0,.5);opacity:0;transition:opacity .12s ease}
+.tier-link-slot:hover .tier-link-button,.tier-link-button:focus-visible{opacity:1}
+.tier-link-button:hover{background:#263a59;border-color:var(--accent);color:var(--accent2)}
 .tlabel{width:var(--labelw);flex:none;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:2px;padding:6px;color:#111;position:relative;cursor:default}
+  justify-content:center;gap:2px;padding:6px;color:#111;position:relative;cursor:grab}
+.tlabel:active{cursor:grabbing}
+.tier.dragging-tier,.tier-drag-hidden{display:none}
+/* A bracket hugging the label column shows which tiers are linked at the same
+   level, instead of a persistent icon between them. */
+.tier-link-bracket{position:absolute;left:-6px;width:10px;z-index:1;pointer-events:none;
+  border:3px solid var(--accent2);border-right:none;border-radius:7px 0 0 7px;opacity:.75}
+#canvas>.tier-link-bracket{z-index:3}
+.tier-placeholder{flex:none;border:2px dashed var(--accent);border-radius:6px;
+  background:rgba(110,168,255,.14);box-shadow:inset 0 0 28px rgba(110,168,255,.14);
+  animation:placeholder-pulse .72s ease-in-out infinite alternate}
+.tier-drag-preview{position:fixed;top:0;left:0;z-index:120;pointer-events:none;opacity:.92;
+  transform-origin:top left;transform:scale(var(--tier-drag-scale,1));
+  border-radius:6px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.18);
+  will-change:left,top}
+.tier-dragging,.tier-dragging *{cursor:grabbing!important;user-select:none!important}
 .tlabel .txt{width:100%;text-align:center;font-weight:700;font-size:15px;word-break:break-word;
   outline:none;border-radius:4px;padding:2px}
 .tlabel .txt:focus{background:rgba(255,255,255,.45)}
@@ -152,7 +179,8 @@ main.panning{cursor:grabbing}
   background:rgba(110,168,255,.14);box-shadow:inset 0 0 22px rgba(110,168,255,.14);
   animation:placeholder-pulse .72s ease-in-out infinite alternate}
 @keyframes placeholder-pulse{to{background:rgba(110,168,255,.25);box-shadow:inset 0 0 28px rgba(110,168,255,.32)}}
-@media (prefers-reduced-motion:reduce){.drag-preview{transform:none}.drop-placeholder{animation:none}}
+@media (prefers-reduced-motion:reduce){.drag-preview{transform:none}
+  .drop-placeholder,.tier-placeholder{animation:none}}
 .item .badge{position:absolute;top:0;right:0;background:rgba(0,0,0,.65);font-size:10px;
   padding:0 3px;border-bottom-left-radius:4px;color:var(--accent2);display:none}
 .item.hasnote .badge{display:block}

@@ -127,6 +127,17 @@ function prepareState(){
   S.opts=Object.assign({labels:'find'},S.opts||{}); delete S.opts.size;
   ensureSubBoards(); compareSubBoardId=activeSubBoard().compareSubBoardId||null;
   applySubBoardLayout(activeSubBoard().layout);
+  normalizeSameLevelGroups();
+}
+function normalizeSameLevelGroups(){
+  const counts=new Map();
+  S.tiers.forEach(tier=>{ if(typeof tier.sameLevelId==='string'&&tier.sameLevelId){
+    counts.set(tier.sameLevelId,(counts.get(tier.sameLevelId)||0)+1);
+  }else delete tier.sameLevelId; });
+  S.tiers.forEach(tier=>{ if(tier.sameLevelId&&counts.get(tier.sameLevelId)<2)delete tier.sameLevelId; });
+}
+function sameLevelCount(tier){
+  return tier.sameLevelId?S.tiers.filter(other=>other.sameLevelId===tier.sameLevelId).length:0;
 }
 function applyTitleWidth(){
   const width=Number(S.opts?.titleWidth);
@@ -351,6 +362,34 @@ function itemNode(id){
 function fillDrop(node,ids){ const f=document.createDocumentFragment();
   ids.forEach(id=>f.appendChild(itemNode(id))); node.replaceChildren(f); }
 
+/* Linked (same-level) tiers show a bracket hugging the label column instead of
+   a persistent link icon — the icon itself only appears on hover of the seam
+   between two tiers, to toggle the link. */
+function renderTierBrackets(){
+  const board=$('#board'), canvas=$('#canvas');
+  $$('#canvas>.tier-link-bracket').forEach(el=>el.remove());
+  const rows=$$('.tier',board);
+  let i=0;
+  while(i<rows.length){
+    const groupId=rows[i].dataset.tier && S.tiers.find(t=>t.id===rows[i].dataset.tier)?.sameLevelId;
+    if(!groupId){ i++; continue; }
+    let j=i;
+    while(j+1<rows.length && S.tiers.find(t=>t.id===rows[j+1].dataset.tier)?.sameLevelId===groupId)j++;
+    const first=rows[i], last=rows[j];
+    const bracket=document.createElement('div');
+    bracket.className='tier-link-bracket';
+    bracket.dataset.group=groupId;
+    // The board clips its own overflow, so brackets hang off the canvas instead
+    // and are placed against the board's outer edge.
+    bracket.style.left=(board.offsetLeft-5)+'px';
+    bracket.style.top=(board.offsetTop+first.offsetTop+6)+'px';
+    bracket.style.height=(last.offsetTop+last.offsetHeight-first.offsetTop-12)+'px';
+    canvas.appendChild(bracket);
+    i=j+1;
+  }
+}
+window.addEventListener('resize',()=>{ if($('#board').isConnected)renderTierBrackets(); });
+
 function render(){
   ensureSubBoards(); applyLabelPreference(); renderSubBoards(); comparisonState=null;
   document.body.className='lab-'+S.opts.labels;
@@ -359,11 +398,12 @@ function render(){
 
   const board=$('#board'); board.replaceChildren();
   S.tiers.forEach((t,i)=>{
-    const row=document.createElement('div'); row.className='tier'; row.dataset.tier=t.id;
+    const linkedCount=sameLevelCount(t);
+    const row=document.createElement('div'); row.className='tier'+(linkedCount?' same-level':''); row.dataset.tier=t.id;
     row.innerHTML=`
-      <div class="tlabel" style="background:${esc(t.color)}">
+      <div class="tlabel" style="background:${esc(t.color)}" title="Drag to reposition this tier; double-click its name to edit">
         ${i<9?`<span class="hot">${i+1}</span>`:''}
-        <div class="txt" contenteditable="plaintext-only" spellcheck="false">${esc(t.label)}</div>
+        <div class="txt" spellcheck="false">${esc(t.label)}</div>
         <div class="cnt">${t.items.length}</div>
         <div class="tools">
           <button class="icon-button" data-act="color" title="Change colour" aria-label="Change colour">${icon('palette')}</button>
@@ -375,6 +415,14 @@ function render(){
       </div>
       <div class="drop" data-list="${t.id}"></div>`;
     fillDrop($('.drop',row),t.items); board.appendChild(row);
+    const next=S.tiers[i+1];
+    if(next){
+      const linked=t.sameLevelId&&t.sameLevelId===next.sameLevelId;
+      const slot=document.createElement('div'); slot.className='tier-link-slot'+(linked?' linked':'');
+      slot.innerHTML=`<button class="tier-link-button" data-link-between="${t.id}" data-link-next="${next.id}"
+        title="${linked?'Separate these tiers':'Link these tiers at the same level'}" aria-label="${linked?'Separate these tiers':'Link these tiers at the same level'}">${icon(linked?'link-off':'link')}</button>`;
+      board.appendChild(slot);
+    }
   });
   const tierActions=document.createElement('div');
   tierActions.className='tier-actions';
@@ -382,6 +430,7 @@ function render(){
     +'<button id="btnRegenerateTierColors" class="add-tier icon-button" title="Generate a new tier color palette" aria-label="Generate a new tier color palette">'
     +icon('palette')+'</button>';
   board.appendChild(tierActions);
+  renderTierBrackets();
   fillDrop($('#pool'),S.pool);
   $('#poolcount').textContent=`${S.pool.length} item${S.pool.length===1?'':'s'}`;
   const total=Object.keys(S.items).length;
@@ -400,6 +449,8 @@ function flatOrder(){ return [...S.tiers.flatMap(t=>t.items),...S.pool]; }
 document.addEventListener('click',e=>{
   if(e.target.closest('#btnAddTier')){ addTier(); return; }
   if(e.target.closest('#btnRegenerateTierColors')){ regenerateTierColors(); return; }
+  const levelLink=e.target.closest('[data-link-between]');
+  if(levelLink){ toggleSameLevelPair(levelLink.dataset.linkBetween,levelLink.dataset.linkNext); return; }
   const tool=e.target.closest('.tools button');
   if(tool){ const tid=tool.closest('.tier').dataset.tier; tierAction(tid,tool.dataset.act); return; }
   const it=e.target.closest('.item');
@@ -414,12 +465,20 @@ document.addEventListener('click',e=>{
   if(!e.target.closest('#insp')&&!e.target.closest('header')&&!e.target.closest('dialog')){
     if(e.target.closest('main')&&!e.target.closest('.tlabel')){ sel.clear(); syncSel(); closeInsp(); } }
 });
-document.addEventListener('dblclick',e=>{ const tab=e.target.closest('[data-subboard]');
+document.addEventListener('dblclick',e=>{ const tierText=e.target.closest('.tlabel .txt');
+  if(tierText){
+    e.preventDefault(); tierText.contentEditable='plaintext-only'; tierText.focus();
+    const selection=window.getSelection(), range=document.createRange();
+    range.selectNodeContents(tierText); selection?.removeAllRanges(); selection?.addRange(range);
+    return;
+  }
+  const tab=e.target.closest('[data-subboard]');
   if(tab){ startInlineSubBoardRename(tab); return; }
   const it=e.target.closest('.item'); if(it)openInsp(it.dataset.id); });
 
 function tierAction(tid,act){
-  const i=S.tiers.findIndex(t=>t.id===tid), t=S.tiers[i]; if(!t)return; snapshot();
+  const i=S.tiers.findIndex(t=>t.id===tid), t=S.tiers[i]; if(!t)return;
+  snapshot();
   if(act==='del'){ S.pool.push(...t.items); S.tiers.splice(i,1); }
   else if(act==='clear'){ S.pool.push(...t.items); t.items=[]; }
   else if(act==='up'&&i>0){ S.tiers.splice(i-1,0,S.tiers.splice(i,1)[0]); }
@@ -427,16 +486,36 @@ function tierAction(tid,act){
   else if(act==='color'){ const inp=document.createElement('input'); inp.type='color'; inp.value=t.color;
     inp.oninput=()=>{ t.color=inp.value; $(`.tier[data-tier="${tid}"] .tlabel`).style.background=inp.value; };
     inp.onchange=()=>{ persist(); }; inp.click(); return; }
-  persist(); render();
+  normalizeSameLevelGroups(); persist(); render();
+}
+function toggleSameLevelPair(firstId,secondId){
+  const firstIndex=S.tiers.findIndex(t=>t.id===firstId), secondIndex=S.tiers.findIndex(t=>t.id===secondId);
+  const first=S.tiers[firstIndex], second=S.tiers[secondIndex];
+  if(!first||!second||secondIndex!==firstIndex+1)return;
+  snapshot();
+  if(first.sameLevelId&&first.sameLevelId===second.sameLevelId){
+    const group=first.sameLevelId, splitId=`level-${uid()}`;
+    for(let i=secondIndex;i<S.tiers.length&&S.tiers[i].sameLevelId===group;i++)S.tiers[i].sameLevelId=splitId;
+    normalizeSameLevelGroups(); persist(); render(); toast('Tiers separated into different levels');
+    return;
+  }
+  const groupId=first.sameLevelId||second.sameLevelId||`level-${uid()}`;
+  const otherGroup=first.sameLevelId&&second.sameLevelId&&first.sameLevelId!==second.sameLevelId
+    ? second.sameLevelId:null;
+  first.sameLevelId=groupId; second.sameLevelId=groupId;
+  if(otherGroup)S.tiers.forEach(tier=>{ if(tier.sameLevelId===otherGroup)tier.sameLevelId=groupId; });
+  normalizeSameLevelGroups(); persist(); render(); toast('Tiers linked at the same level');
 }
 document.addEventListener('input',e=>{ if(e.target.classList.contains('txt')){
   const tid=e.target.closest('.tier').dataset.tier;
   const t=S.tiers.find(t=>t.id===tid); if(t){ t.label=e.target.textContent.trim(); persist(); } }});
+document.addEventListener('focusout',e=>{ if(e.target.classList.contains('txt'))e.target.contentEditable='false'; });
 
 /* ============================ DRAG & DROP ============================ */
 let dragIds=[], dragPreview=null, dropPlaceholders=[], dragBeforeId=null, dragTarget=null,
   heldItemPress=null, dragClientX=0, dragClientY=0, suppressItemClick=false,
-  cancelledItemDrag=false;
+  cancelledItemDrag=false, heldTierPress=null, draggedTierIds=[], tierPlaceholder=null,
+  tierPreview=null, tierClientX=0, tierClientY=0;
 const SNAP_HOLD_RATIO=.18;
 const DRAG_START_DISTANCE=4;
 
@@ -586,15 +665,169 @@ window.addEventListener('mouseup',e=>{
     setTimeout(()=>{ suppressItemClick=false; },0); }
 });
 window.addEventListener('blur',()=>{ heldItemPress=null; cancelledItemDrag=false; suppressItemClick=false;
-  if(dragIds.length)clearDrag(); });
+  if(dragIds.length)clearDrag();
+  if(heldTierPress)clearTierDrag(); });
 document.addEventListener('click',e=>{
   if(!suppressItemClick)return;
   suppressItemClick=false; e.preventDefault(); e.stopImmediatePropagation();
 },true);
 
+/* Tier rows use the label as their drag handle. Keeping this separate from item
+   dragging preserves multi-select item moves and lets the editable label work
+   normally when it is clicked. */
+function clearTierDrag(){
+  heldTierPress=null; draggedTierIds=[];
+  tierPlaceholder?.remove(); tierPlaceholder=null;
+  tierPreview?.remove(); tierPreview=null;
+  document.body.classList.remove('tier-dragging');
+  $$('.tier.dragging-tier').forEach(row=>row.classList.remove('dragging-tier'));
+  $$('.tier-drag-hidden').forEach(el=>el.classList.remove('tier-drag-hidden'));
+}
+/* Lift the row out of the board the way a dragged card leaves its slot: a fixed
+   clone follows the cursor while a placeholder of the same height keeps the
+   remaining tiers cascading around the spot the row would land in. A linked
+   group's bracket travels along in the clone, and the real one hides for the
+   duration so it doesn't look left behind. */
+function beginTierPreview(rows,startX,startY,groupId){
+  const first=rows[0], firstRect=first.getBoundingClientRect();
+  const layoutWidth=first.offsetWidth||firstRect.width;
+  tierPreview=document.createElement('div');
+  tierPreview.className='tier-drag-preview';
+  tierPreview.setAttribute('aria-hidden','true');
+  tierPreview.style.width=layoutWidth+'px';
+  tierPreview.style.setProperty('--tier-drag-scale',firstRect.width/layoutWidth);
+  const last=rows.at(-1);
+  const clonedRows=[];
+  let node=first;
+  while(node){
+    const clone=node.cloneNode(true);
+    if(clone.classList.contains('tier')){ clone.classList.remove('dragging-tier'); clonedRows.push(clone); }
+    $$('[contenteditable]',clone).forEach(n=>n.removeAttribute('contenteditable'));
+    tierPreview.appendChild(clone);
+    if(node===last)break;
+    node=node.nextElementSibling;
+  }
+  tierPreview._offsetX=startX-firstRect.left;
+  tierPreview._offsetY=startY-firstRect.top;
+  document.body.appendChild(tierPreview);
+  if(groupId&&clonedRows.length>1){
+    const bracket=document.createElement('div');
+    bracket.className='tier-link-bracket';
+    const firstClone=clonedRows[0], lastClone=clonedRows.at(-1);
+    bracket.style.top=(firstClone.offsetTop+6)+'px';
+    bracket.style.height=(lastClone.offsetTop+lastClone.offsetHeight-firstClone.offsetTop-12)+'px';
+    tierPreview.appendChild(bracket);
+    $(`#canvas>.tier-link-bracket[data-group="${groupId}"]`)?.classList.add('tier-drag-hidden');
+  }
+  moveTierPreview(startX,startY);
+}
+function moveTierPreview(x,y){
+  if(!tierPreview)return;
+  tierPreview.style.left=(x-tierPreview._offsetX)+'px';
+  tierPreview.style.top=(y-tierPreview._offsetY)+'px';
+}
+function makeTierPlaceholder(rows){
+  let height=0, node=rows[0];
+  const last=rows.at(-1);
+  while(node){ height+=node.offsetHeight; if(node===last)break; node=node.nextElementSibling; }
+  tierPlaceholder=document.createElement('div');
+  tierPlaceholder.className='tier-placeholder';
+  tierPlaceholder.setAttribute('aria-hidden','true');
+  tierPlaceholder.style.height=height+'px';
+}
+/* Link slots inside the lifted block travel with it. Of the two slots bordering
+   the block only one is spare, so the rows closing the gap keep a separator. */
+function hideDraggedTiers(rows){
+  const first=rows[0], last=rows.at(-1);
+  const isSlot=node=>!!node&&node.classList.contains('tier-link-slot');
+  const before=isSlot(first.previousElementSibling)?first.previousElementSibling:null;
+  const after=isSlot(last.nextElementSibling)?last.nextElementSibling:null;
+  let node=first;
+  while(node&&node!==last){
+    node=node.nextElementSibling;
+    if(node&&node!==last&&isSlot(node))node.classList.add('tier-drag-hidden');
+  }
+  (before||after)?.classList.add('tier-drag-hidden');
+  rows.forEach(row=>row.classList.add('dragging-tier'));
+}
+function beginTierDrag(startX,startY,x,y){
+  const tier=S.tiers.find(t=>t.id===heldTierPress.id);
+  const groupId=tier?.sameLevelId||null;
+  draggedTierIds=groupId
+    ? S.tiers.filter(other=>other.sameLevelId===groupId).map(other=>other.id)
+    : [heldTierPress.id];
+  const rows=$$('.tier',$('#board')).filter(row=>draggedTierIds.includes(row.dataset.tier));
+  if(!rows.length){ clearTierDrag(); return; }
+  beginTierPreview(rows,startX,startY,groupId);
+  makeTierPlaceholder(rows);
+  rows[0].before(tierPlaceholder);
+  hideDraggedTiers(rows);
+  document.body.classList.add('tier-dragging');
+  updateTierDrag(x,y);
+}
+function updateTierDrag(x=tierClientX,y=tierClientY){
+  if(!draggedTierIds.length)return;
+  tierClientX=x; tierClientY=y; moveTierPreview(x,y);
+  if(tierPlaceholder?.parentElement){
+    const rect=tierPlaceholder.getBoundingClientRect();
+    const margin=rect.height*SNAP_HOLD_RATIO;
+    if(y>=rect.top-margin&&y<=rect.bottom+margin)return;
+  }
+  const board=$('#board');
+  const rows=$$('.tier',board).filter(row=>!row.classList.contains('dragging-tier'));
+  const before=rows.find(row=>{
+    const rect=row.getBoundingClientRect();
+    return y<rect.top+rect.height/2;
+  });
+  if(before)before.before(tierPlaceholder);
+  else $('.tier-actions',board).before(tierPlaceholder);
+}
+function dropTier(){
+  if(!draggedTierIds.length)return;
+  let beforeId=null, node=tierPlaceholder?.nextElementSibling;
+  while(node){
+    if(node.classList.contains('tier')&&!node.classList.contains('dragging-tier')){
+      beforeId=node.dataset.tier; break;
+    }
+    node=node.nextElementSibling;
+  }
+  const moving=S.tiers.filter(t=>draggedTierIds.includes(t.id));
+  const reordered=S.tiers.filter(t=>!draggedTierIds.includes(t.id));
+  const index=beforeId?reordered.findIndex(t=>t.id===beforeId):reordered.length;
+  if(moving.length&&index>=0){
+    reordered.splice(index,0,...moving);
+    if(reordered.some((t,i)=>t.id!==S.tiers[i].id)){
+      snapshot(); S.tiers=reordered; persist(); render();
+    }
+  }
+  clearTierDrag();
+}
+document.addEventListener('mousedown',e=>{
+  if(e.button!==0)return;
+  const label=e.target.closest('.tlabel');
+  if(!label||e.target.closest('.txt,.tools'))return;
+  e.preventDefault();
+  heldTierPress={id:label.closest('.tier').dataset.tier,startX:e.clientX,startY:e.clientY};
+});
+window.addEventListener('mousemove',e=>{
+  if(!heldTierPress)return;
+  if(!(e.buttons&1)){ clearTierDrag(); return; }
+  if(!draggedTierIds.length&&Math.abs(e.clientY-heldTierPress.startY)>=DRAG_START_DISTANCE){
+    beginTierDrag(heldTierPress.startX,heldTierPress.startY,e.clientX,e.clientY);
+  }else if(draggedTierIds.length)updateTierDrag(e.clientX,e.clientY);
+});
+window.addEventListener('mouseup',e=>{
+  if(e.button!==0||!heldTierPress)return;
+  if(draggedTierIds.length)dropTier(); else clearTierDrag();
+});
+
 /* ============================ KEYBOARD ============================ */
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&cancelItemDrag()){ e.preventDefault(); return; }
+  if(e.key==='Escape'&&draggedTierIds.length){ clearTierDrag(); e.preventDefault(); return; }
+  if(e.key==='Enter'&&e.target.classList.contains('txt')&&e.target.isContentEditable){
+    e.preventDefault(); e.target.blur(); return;
+  }
   if(e.key==='Escape'&&!$('#settingsMenu').hidden){ $('#settingsMenu').hidden=true; return; }
   const typing=/^(INPUT|TEXTAREA)$/.test(e.target.tagName)||e.target.isContentEditable;
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){
@@ -763,6 +996,7 @@ function openInsp(id){
     canvas.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.scale})`;
     // Keep the insertion slot under the held item as the canvas moves beneath it.
     if(dragIds.length)updateHeldItemDrag();
+    if(draggedTierIds.length)updateTierDrag();
   }
 
   let dragging=false, lastX=0, lastY=0;
@@ -906,7 +1140,12 @@ function addTier(){ snapshot();
 function regenerateTierColors(){
   if(!S.tiers.length)return;
   snapshot();
-  S.tiers.forEach((tier,index)=>{ tier.color=TM_COLORS[Math.min(index,TM_COLORS.length-1)]; });
+  const colorsByLevel=new Map(); let nextColor=0;
+  S.tiers.forEach(tier=>{
+    const level=tier.sameLevelId||tier.id;
+    if(!colorsByLevel.has(level))colorsByLevel.set(level,TM_COLORS[Math.min(nextColor++,TM_COLORS.length-1)]);
+    tier.color=colorsByLevel.get(level);
+  });
   persist(); render(); toast('Regenerated tier colors');
 }
 function selectHits(){ const terms=parseQuery($('#q').value.trim());
@@ -1779,7 +2018,7 @@ function loadJSON(text,quiet){
     return toast(`Imported ${o.chars.length} items`+(tc?` into ${tc.tiers.length} tiers`:''));
   }
   if(o.items&&o.tiers){ // full board / import pack
-    S=normalize(o); sel.clear(); persist(); render(); dlgImport.close();
+    S=normalize(o); prepareState(); sel.clear(); persist(); render(); dlgImport.close();
     return toast('Loaded "'+S.title+'"');
   }
   toast('Unrecognised JSON shape');
@@ -1799,6 +2038,7 @@ function normalize(o){
   const tierMap={};
   st.tiers=(o.tiers||[]).map((t,i)=>{ const id=uid(); if(t.id)tierMap[t.id]=id;
     return {id,label:t.label??t.name??String(i),color:t.color||TM_COLORS[i%10],
+      sameLevelId:typeof t.sameLevelId==='string'&&t.sameLevelId?t.sameLevelId:undefined,
       items:(t.items||t.ids||[]).map(x=>map[x]||(st.items[x]?x:null)).filter(Boolean)};
   });
   if(!st.tiers.length)st.tiers=blankState().tiers;
