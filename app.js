@@ -2011,7 +2011,8 @@ function loadJSON(text,quiet){
       ? {tiers:o.rows.map((r,i)=>({label:r.label||String(i+1),
           color:toHex(r.color)||TM_COLORS[i%10], ids:(r.ids||[]).map(String)}))}
       : (o.templateCode?parseTemplateCode('templateCode = "'+o.templateCode+'"'):null);
-    buildFrom(o.chars.filter(c=>c.src).map(c=>({...c,name:c.name||nameFromUrl(c.src)})),tc,
+    const abs=s=>{ try{ return new URL(s,'https://tiermaker.com/').href; }catch(e){ return s; } };
+    buildFrom(o.chars.filter(c=>c.src).map(c=>({...c,src:abs(c.src),name:c.name||nameFromUrl(c.src)})),tc,
       $('#mergepaste')?.checked||false,{url:o.url,title:cleanTitle(o.title)});
     autoRelinkImportedItems().catch(error=>log('Image matching failed: '+error.message));
     dlgImport.close();
