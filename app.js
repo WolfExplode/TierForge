@@ -2,6 +2,7 @@
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const uid=()=>Math.random().toString(36).slice(2,10);
 const TILE_SIZE=96;
+const DRAWING_MARGIN=360;
 const icon=name=>`<svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-${name}"></use></svg>`;
 const movementArrow=direction=>`<svg class="movement-arrow ${direction}" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M5 31 24 17l19 14"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -63,6 +64,7 @@ const LABEL_MODES=new Set(['find','show','hover']);
 let S=null, sel=new Set(), lastClicked=null, undoStack=[], compareSubBoardId=null, comparisonState=null,
   draggedSubBoardId=null;
 let inspectorItemId=null;
+let drawingMode=null, drawingPointer=null, drawingRenderFrame=null;
 
 function storedLabelMode(){
   try{
@@ -88,7 +90,7 @@ function applyLabelPreference(){
 function blankState(){
   return {v:1,title:'Untitled Tier List',source:'',
     tiers:DEFAULT_TIERS.map(([l,c])=>({id:uid(),label:l,color:c,items:[]})),
-    pool:[],items:{},opts:{labels:'find'}};
+    pool:[],items:{},opts:{labels:'find',drawColor:'#ff4d6d',drawWidth:6}};
 }
 function layoutFromState(){
   return {tiers:S.tiers.map(t=>({id:t.id,items:[...t.items]})),pool:[...S.pool]};
@@ -113,7 +115,9 @@ function ensureSubBoards(){
   }
   S.subBoards=S.subBoards.map((sub,i)=>({
     id:sub.id||uid(),name:String(sub.name||`Alternative ${i+1}`),layout:sub.layout||layoutFromState(),
-    compareSubBoardId:sub.compareSubBoardId||null
+    compareSubBoardId:sub.compareSubBoardId||null,
+    drawing:{strokes:Array.isArray(sub.drawing?.strokes)?sub.drawing.strokes.filter(stroke=>
+      stroke&&Array.isArray(stroke.points)&&stroke.points.length):[]}
   }));
   S.subBoards.forEach(sub=>{
     if(sub.compareSubBoardId===sub.id||!S.subBoards.some(other=>other.id===sub.compareSubBoardId)){
@@ -124,7 +128,9 @@ function ensureSubBoards(){
 }
 function prepareState(){
   if(!S||!S.tiers)S=blankState();
-  S.opts=Object.assign({labels:'find'},S.opts||{}); delete S.opts.size;
+  S.opts=Object.assign({labels:'find',drawColor:'#ff4d6d',drawWidth:6},S.opts||{}); delete S.opts.size;
+  if(!/^#[0-9a-f]{6}$/i.test(S.opts.drawColor))S.opts.drawColor='#ff4d6d';
+  S.opts.drawWidth=Math.max(2,Math.min(24,Number(S.opts.drawWidth)||6));
   ensureSubBoards(); compareSubBoardId=activeSubBoard().compareSubBoardId||null;
   applySubBoardLayout(activeSubBoard().layout);
   normalizeSameLevelGroups();
@@ -250,7 +256,7 @@ function comparisonFor(id){
 function snapshot(){ storeActiveSubBoard(); undoStack.push(JSON.stringify(S)); if(undoStack.length>40)undoStack.shift(); }
 function undo(){ if(window.collaboration?.undo?.())return;
   if(!undoStack.length)return toast('Nothing to undo');
-  S=JSON.parse(undoStack.pop()); prepareState(); sel.clear(); render(); toast('Undone'); }
+  S=JSON.parse(undoStack.pop()); prepareState(); sel.clear(); persist(); render(); toast('Undone'); }
 
 /* list helpers -------------------------------------------------- */
 const listOf=ref=> ref==='pool' ? S.pool : (S.tiers.find(t=>t.id===ref)||{items:[]}).items;
@@ -400,6 +406,7 @@ function render(){
   document.body.classList.add('lab-'+S.opts.labels);
   applyTitleWidth();
   $('#title').value=S.title; $('#labmode').value=S.opts.labels;
+  $('#drawColor').value=S.opts.drawColor; $('#drawWidth').value=String(S.opts.drawWidth);
 
   const board=$('#board'); board.replaceChildren();
   S.tiers.forEach((t,i)=>{
@@ -442,6 +449,7 @@ function render(){
   $('#stat').textContent=`${total} items · ${S.tiers.length} tiers · ${total-S.pool.length} ranked`;
   $('#selinfo').textContent=sel.size?`${sel.size} selected`:'';
   applyFilter();
+  scheduleDrawingRender();
   window.collaboration?.afterRender?.();
 }
 
@@ -832,6 +840,7 @@ window.addEventListener('mouseup',e=>{
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&cancelItemDrag()){ e.preventDefault(); return; }
   if(e.key==='Escape'&&draggedTierIds.length){ clearTierDrag(); e.preventDefault(); return; }
+  if(e.key==='Escape'&&drawingMode){ setDrawingMode(null); e.preventDefault(); return; }
   if(e.key==='Enter'&&e.target.classList.contains('txt')&&e.target.isContentEditable){
     e.preventDefault(); e.target.blur(); return;
   }
@@ -993,6 +1002,132 @@ function openInsp(id){
     if(ev.key==='Enter'&&el.tagName==='INPUT'){ ev.preventDefault(); $('#i-save').click(); } }));
 }
 
+/* ============================ DRAWING ============================ */
+function currentDrawing(){
+  const sub=activeSubBoard();
+  if(!sub)return {strokes:[]};
+  if(!sub.drawing||!Array.isArray(sub.drawing.strokes))sub.drawing={strokes:[]};
+  return sub.drawing;
+}
+function drawingContext(){
+  const surface=$('#drawingSurface'), ratio=Math.max(1,window.devicePixelRatio||1);
+  const boardWidth=Math.max(1,$('#canvas').offsetWidth), boardHeight=Math.max(1,$('#canvas').offsetHeight);
+  const width=boardWidth+DRAWING_MARGIN*2, height=boardHeight+DRAWING_MARGIN*2;
+  if(surface.width!==Math.round(width*ratio)||surface.height!==Math.round(height*ratio)){
+    surface.width=Math.round(width*ratio); surface.height=Math.round(height*ratio);
+  }
+  surface.style.left=-DRAWING_MARGIN+'px'; surface.style.top=-DRAWING_MARGIN+'px';
+  surface.style.width=width+'px'; surface.style.height=height+'px';
+  surface.dataset.logicalWidth=String(width); surface.dataset.logicalHeight=String(height);
+  const ctx=surface.getContext('2d');
+  ctx.setTransform(ratio,0,0,ratio,DRAWING_MARGIN*ratio,DRAWING_MARGIN*ratio);
+  return {ctx,width,height,ratio};
+}
+function paintStroke(ctx,stroke){
+  const points=stroke.points||[]; if(!points.length)return;
+  ctx.save();
+  ctx.globalCompositeOperation=stroke.tool==='erase'?'destination-out':'source-over';
+  ctx.strokeStyle=stroke.color||'#ff4d6d'; ctx.fillStyle=stroke.color||'#ff4d6d';
+  ctx.lineWidth=Math.max(1,Number(stroke.width)||6); ctx.lineCap='round'; ctx.lineJoin='round';
+  if(points.length===1){
+    ctx.beginPath(); ctx.arc(points[0].x,points[0].y,ctx.lineWidth/2,0,Math.PI*2); ctx.fill();
+  }else{
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
+    for(let i=1;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function renderDrawing(){
+  drawingRenderFrame=null;
+  const {ctx,width,height,ratio}=drawingContext();
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,width*ratio,height*ratio); ctx.restore();
+  currentDrawing().strokes.forEach(stroke=>paintStroke(ctx,stroke));
+  $('#drawClear').disabled=!currentDrawing().strokes.length;
+}
+function scheduleDrawingRender(){
+  if(drawingRenderFrame!==null)cancelAnimationFrame(drawingRenderFrame);
+  drawingRenderFrame=requestAnimationFrame(renderDrawing);
+}
+function eraserDiameter(){ return Math.max(54,S.opts.drawWidth*7.5); }
+function hideEraserCursor(){ $('#eraserCursor').hidden=true; }
+function showEraserCursor(event){
+  if(drawingMode!=='erase')return hideEraserCursor();
+  const surface=$('#drawingSurface'), rect=surface.getBoundingClientRect();
+  const width=Number(surface.dataset.logicalWidth)||surface.offsetWidth;
+  const diameter=eraserDiameter()*rect.width/width;
+  const cursor=$('#eraserCursor');
+  cursor.style.width=diameter+'px'; cursor.style.height=diameter+'px';
+  cursor.style.left=event.clientX+'px'; cursor.style.top=event.clientY+'px'; cursor.hidden=false;
+}
+function setDrawingMode(mode){
+  drawingMode=drawingMode===mode?null:mode;
+  document.body.classList.toggle('draw-mode',!!drawingMode);
+  document.body.classList.toggle('draw-pen',drawingMode==='pen');
+  document.body.classList.toggle('draw-eraser',drawingMode==='erase');
+  $('#drawPen').setAttribute('aria-pressed',String(drawingMode==='pen'));
+  $('#drawEraser').setAttribute('aria-pressed',String(drawingMode==='erase'));
+  $('#drawSettings').hidden=drawingMode!=='pen';
+  if(drawingMode!=='erase')hideEraserCursor();
+  if(drawingMode)closeInsp();
+}
+function drawingPoint(event){
+  const surface=$('#drawingSurface'), rect=surface.getBoundingClientRect();
+  const width=Number(surface.dataset.logicalWidth)||surface.offsetWidth;
+  const height=Number(surface.dataset.logicalHeight)||surface.offsetHeight;
+  return {x:(event.clientX-rect.left)*width/rect.width-DRAWING_MARGIN,
+    y:(event.clientY-rect.top)*height/rect.height-DRAWING_MARGIN};
+}
+function appendDrawingPoint(event){
+  if(!drawingPointer||event.pointerId!==drawingPointer.pointerId)return;
+  const point=drawingPoint(event), points=drawingPointer.stroke.points, previous=points.at(-1);
+  if(previous&&Math.hypot(point.x-previous.x,point.y-previous.y)<.65)return;
+  points.push(point); scheduleDrawingRender();
+}
+function finishDrawing(event){
+  if(!drawingPointer||event.pointerId!==drawingPointer.pointerId)return;
+  appendDrawingPoint(event);
+  const surface=$('#drawingSurface');
+  if(surface.hasPointerCapture(event.pointerId))surface.releasePointerCapture(event.pointerId);
+  drawingPointer=null; persist(); scheduleDrawingRender();
+}
+
+(()=>{
+  const surface=$('#drawingSurface'), toolbar=$('#drawToolbar');
+  $('#drawColor').value=S?.opts?.drawColor||'#ff4d6d';
+  $('#drawPen').onclick=()=>setDrawingMode('pen');
+  $('#drawEraser').onclick=()=>setDrawingMode('erase');
+  $('#drawClear').onclick=()=>{
+    const drawing=currentDrawing(); if(!drawing.strokes.length)return;
+    snapshot(); drawing.strokes=[]; persist(); scheduleDrawingRender(); toast('Drawing cleared');
+  };
+  $('#drawColor').oninput=e=>{ S.opts.drawColor=e.target.value; persist(); };
+  $('#drawWidth').oninput=e=>{ S.opts.drawWidth=Number(e.target.value); persist(); };
+  toolbar.addEventListener('pointerdown',e=>e.stopPropagation());
+  toolbar.addEventListener('click',e=>e.stopPropagation());
+  surface.addEventListener('pointerdown',event=>{
+    if(!drawingMode||(event.pointerType==='mouse'&&event.button!==0))return;
+    showEraserCursor(event); event.preventDefault(); event.stopPropagation(); snapshot();
+    const stroke={tool:drawingMode,color:S.opts.drawColor,
+      width:drawingMode==='erase'?Math.max(54,S.opts.drawWidth*7.5):S.opts.drawWidth,
+      points:[drawingPoint(event)]};
+    currentDrawing().strokes.push(stroke);
+    drawingPointer={pointerId:event.pointerId,stroke};
+    surface.setPointerCapture(event.pointerId); scheduleDrawingRender();
+  });
+  surface.addEventListener('pointermove',event=>{
+    showEraserCursor(event);
+    if(!drawingPointer)return; event.preventDefault();
+    const events=event.getCoalescedEvents?.()||[event]; events.forEach(appendDrawingPoint);
+  });
+  surface.addEventListener('pointerenter',showEraserCursor);
+  surface.addEventListener('pointerleave',hideEraserCursor);
+  surface.addEventListener('pointerup',finishDrawing);
+  surface.addEventListener('pointercancel',finishDrawing);
+  surface.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+  new ResizeObserver(scheduleDrawingRender).observe($('#canvas'));
+})();
+
 /* ============================ CANVAS PAN/ZOOM ============================ */
 (()=>{
   const main=document.querySelector('main'), canvas=$('#canvas');
@@ -1001,6 +1136,9 @@ function openInsp(id){
   const MIN=.85, MAX=5;
   function apply(){
     canvas.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.scale})`;
+    // Remote cursors use board-space positions. Reproject them whenever this
+    // viewer pans or zooms their independent canvas view.
+    window.collaboration?.viewChanged?.();
     // Keep the insertion slot under the held item as the canvas moves beneath it.
     if(dragIds.length)updateHeldItemDrag();
     if(draggedTierIds.length)updateTierDrag();

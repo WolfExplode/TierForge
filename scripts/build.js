@@ -16,6 +16,7 @@ await Promise.all([
   copyFile(path.join(root, 'collab.js'), path.join(output, 'collab.js')),
   copyFile(path.join(root, 'png-metadata.js'), path.join(output, 'png-metadata.js')),
   cp(path.join(root, 'catalogs'), path.join(output, 'catalogs'), { recursive: true }),
+  cp(path.join(root, 'assets'), path.join(output, 'assets'), { recursive: true }),
   cp(path.join(root, 'Images', 'catalogs'), path.join(output, 'Images', 'catalogs'), { recursive: true }),
 ]);
 

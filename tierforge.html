@@ -65,6 +65,7 @@
 
 <main>
   <div id="canvas">
+    <canvas id="drawingSurface" aria-label="Board drawing surface"></canvas>
     <div id="board"></div>
     <div id="poolwrap">
       <div id="poolhead">
@@ -78,6 +79,16 @@
       <div id="pool" class="drop" data-list="pool"></div>
     </div>
   </div>
+  <div id="drawToolbar" class="draw-toolbar" role="toolbar" aria-label="Drawing tools">
+    <button id="drawPen" class="draw-tool" type="button" title="Draw on the board" aria-label="Draw on the board" aria-pressed="false"><img class="draw-tool-icon" src="assets/drawing/pencil.png" alt=""></button>
+    <div id="drawSettings" class="draw-settings" hidden>
+      <input id="drawColor" type="color" value="#ff4d6d" title="Pen colour" aria-label="Pen colour">
+      <input id="drawWidth" type="range" min="2" max="24" step="1" value="6" title="Pen width" aria-label="Pen width">
+    </div>
+    <button id="drawEraser" class="draw-tool" type="button" title="Erase drawing" aria-label="Erase drawing" aria-pressed="false"><img class="draw-tool-icon" src="assets/drawing/eraser.png" alt=""></button>
+    <button id="drawClear" class="draw-tool" type="button" title="Clear drawing" aria-label="Clear drawing"><img class="draw-tool-icon" src="assets/drawing/broom.png" alt=""></button>
+  </div>
+  <div id="eraserCursor" aria-hidden="true" hidden></div>
 </main>
 
 <aside id="insp"></aside>
@@ -265,6 +276,10 @@
     <p><strong>Keys.</strong> <kbd>/</kbd> or <kbd>Ctrl</kbd>+<kbd>F</kbd> search · <kbd>Enter</kbd> while searching selects all matches ·
       <kbd>Esc</kbd> clear · <kbd>Ctrl</kbd>+<kbd>A</kbd> select matches · <kbd>Del</kbd> delete selection · <kbd>Ctrl</kbd>+<kbd>S</kbd> save board ·
       <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · double-click a tile to open the inspector.</p>
+    <p><strong>Drawing.</strong> Use the floating pen to annotate the current sub-board. Choose a
+      colour and line width, switch to the eraser to remove part of a mark, or use the broom to
+      clear all marks. Clicking the active tool again exits drawing mode. Drawings are saved with
+      the board and <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes a stroke or clear.</p>
     <p><strong>Navigating while dragging.</strong> Keep holding an item with the left mouse button,
       then use the wheel to zoom or hold the middle mouse button and move to pan. The item remains
       attached to the pointer and drops normally when you release the left button. Press

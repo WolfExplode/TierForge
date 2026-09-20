@@ -126,6 +126,8 @@ window.collaboration=(()=>{
     if($('#btnImageFolder'))$('#btnImageFolder').disabled=active;
     $('#coopRoomCode').textContent=state.code;
     const own=participant();
+    if(active&&own)document.documentElement.style.setProperty('--selection-color',own.color);
+    else document.documentElement.style.removeProperty('--selection-color');
     if(active&&own&&document.activeElement!==$('#coopName'))$('#coopName').value=own.name;
     const members=$('#coopMembers');
     members.replaceChildren(...[...state.participants.values()].map(member=>{
@@ -317,11 +319,25 @@ window.collaboration=(()=>{
       selectionLayer++;
       if(remote.x===null||remote.y===null||!Number.isFinite(remote.x)||!Number.isFinite(remote.y))continue;
       const cursor=document.createElement('div'); cursor.className='remote-cursor';
+      cursor.dataset.participant=id;
       cursor.style.left=`${rect.left+remote.x*rect.width}px`; cursor.style.top=`${rect.top+remote.y*rect.height}px`;
       cursor.style.setProperty('--remote-color',member.color);
       cursor.innerHTML='<b></b><span></span>'; cursor.querySelector('span').textContent=member.name;
       $('#coopCursors').appendChild(cursor);
     }
+  }
+  function viewChanged(){
+    if(!state.active||viewChanged.pending)return;
+    viewChanged.pending=requestAnimationFrame(()=>{
+      viewChanged.pending=null;
+      const rect=$('#canvas').getBoundingClientRect();
+      $$('.remote-cursor').forEach(cursor=>{
+        const remote=state.remote.get(cursor.dataset.participant);
+        if(!remote||remote.x===null||remote.y===null)return;
+        cursor.style.left=`${rect.left+remote.x*rect.width}px`;
+        cursor.style.top=`${rect.top+remote.y*rect.height}px`;
+      });
+    });
   }
   function afterRender(){if(state.active)requestAnimationFrame(renderRemotePresence);}
 
@@ -336,6 +352,7 @@ window.collaboration=(()=>{
     clearTimeout(state.reconnectTimer); forgetCredentials(); setSessionUrl('');
     state.active=false;state.connected=false;state.code='';state.participantId='';state.token='';
     state.hostId='';state.participants.clear();state.remote.clear();state.baseBoard=null;state.inflight=null;
+    document.documentElement.style.removeProperty('--selection-color');
     document.body.classList.remove('collab-readonly'); $('#coopConnection').hidden=true;
     $('#coopPresence').hidden=true; $('#coopCursors').replaceChildren(); renderCoopUi(); render();
   }
@@ -376,7 +393,7 @@ window.collaboration=(()=>{
       else dlgCoop.showModal();
     }
   }
-  return {boot,handlePersist,undo:undoRemote,selectionChanged,afterRender,isActive:()=>state.active,
+  return {boot,handlePersist,undo:undoRemote,selectionChanged,afterRender,viewChanged,isActive:()=>state.active,
     isConnected:()=>state.connected};
 })();
 window.collaboration.boot();
