@@ -6,6 +6,10 @@ window.collaboration=(()=>{
   const hosted=()=>!!document.querySelector('meta[name="tierforge-runtime"][content="static"]');
   const clone=value=>structuredClone(value);
   const equal=(left,right)=>JSON.stringify(left)===JSON.stringify(right);
+  const REMOTE_CURSOR_SOURCES={
+    '':'assets/cursors/default.png',ironclad:'assets/cursors/ironclad.png',
+    necrobinder:'assets/cursors/necrobinder.png',silent:'assets/cursors/silent.png'
+  };
   let booted=false;
   const state={active:false,connected:false,code:'',participantId:'',token:'',hostId:'',
     participants:new Map(),baseBoard:null,inflight:null,saved:false,intentionalClose:false,
@@ -199,7 +203,7 @@ window.collaboration=(()=>{
     if(message.type==='cursor'){
       if(message.participantId!==state.participantId){
         state.remote.set(message.participantId,{x:message.x,y:message.y,
-          boardX:message.boardX,boardY:message.boardY,anchor:message.anchor||null,
+          boardX:message.boardX,boardY:message.boardY,anchor:message.anchor||null,cursor:message.cursor||'',
           selection:message.selection||[]});
         renderRemotePresence();
       }
@@ -292,8 +296,10 @@ window.collaboration=(()=>{
 
   function selectionChanged(){
     if(!state.active||!state.connected)return;
-    send({type:'cursor',...state.lastPointer,selection:[...sel]});
+    const cursor=window.tierforgeCursor?.current?.()||'';
+    send({type:'cursor',...state.lastPointer,cursor,selection:[...sel]});
   }
+  function cursorChanged(){selectionChanged();}
   function pointerMoved(event){
     if(!state.active||!state.connected)return;
     const canvas=$('#canvas'),rect=canvas.getBoundingClientRect();
@@ -347,7 +353,10 @@ window.collaboration=(()=>{
       const position=remoteCursorPosition(remote,canvas,rect);
       cursor.style.left=position.left+'px'; cursor.style.top=position.top+'px';
       cursor.style.setProperty('--remote-color',member.color);
-      cursor.innerHTML='<b></b><span></span>'; cursor.querySelector('span').textContent=member.name;
+      const source=REMOTE_CURSOR_SOURCES[remote.cursor]||REMOTE_CURSOR_SOURCES[''];
+      cursor.classList.add('custom');
+      cursor.innerHTML='<img alt=""><span></span>';
+      cursor.querySelector('img').src=source; cursor.querySelector('span').textContent=member.name;
       $('#coopCursors').appendChild(cursor);
     }
   }
@@ -418,7 +427,7 @@ window.collaboration=(()=>{
       else dlgCoop.showModal();
     }
   }
-  return {boot,handlePersist,undo:undoRemote,selectionChanged,afterRender,viewChanged,isActive:()=>state.active,
+  return {boot,handlePersist,undo:undoRemote,selectionChanged,cursorChanged,afterRender,viewChanged,isActive:()=>state.active,
     isConnected:()=>state.connected};
 })();
 window.collaboration.boot();

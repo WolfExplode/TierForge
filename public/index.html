@@ -45,6 +45,18 @@
         </select>
       </div>
     </div>
+    <div id="cursorPickerWrap">
+      <button id="btnCursorPicker" class="ghost icon-button" type="button" title="Choose cursor" aria-label="Choose cursor" aria-haspopup="menu" aria-expanded="false"><img src="assets/cursors/default.png" alt=""></button>
+      <div id="cursorPicker" role="menu" aria-label="Custom cursors" hidden>
+        <div class="cursor-picker-title">Choose a cursor</div>
+        <div class="cursor-options">
+          <button class="cursor-option" type="button" role="menuitemradio" data-cursor="" aria-checked="true" title="System cursor"><img src="assets/cursors/default.png" alt=""><span>System</span></button>
+          <button class="cursor-option" type="button" role="menuitemradio" data-cursor="ironclad" aria-checked="false" title="Ironclad"><img src="assets/cursors/ironclad.png" alt=""><span>Ironclad</span></button>
+          <button class="cursor-option" type="button" role="menuitemradio" data-cursor="necrobinder" aria-checked="false" title="Necrobinder"><img src="assets/cursors/necrobinder.png" alt=""><span>Necrobinder</span></button>
+          <button class="cursor-option" type="button" role="menuitemradio" data-cursor="silent" aria-checked="false" title="Silent"><img src="assets/cursors/silent.png" alt=""><span>Silent</span></button>
+        </div>
+      </div>
+    </div>
     <button id="btnHelp" class="ghost">?</button>
   </div>
   <div class="row">
@@ -97,6 +109,7 @@
 <div id="drophint">Drop images to add them to the pool</div>
 <div id="coopConnection" class="coop-connection" hidden>Reconnecting… shared editing is paused</div>
 <div id="coopCursors" aria-hidden="true"></div>
+<div id="customCursor" aria-hidden="true" hidden><img alt=""></div>
 
 <!-- ============ IMPORT DIALOG ============ -->
 <dialog id="dlgImport">

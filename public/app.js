@@ -59,6 +59,14 @@ const TM_COLORS=['#ff7f7f','#ffbf7f','#ffdf7f','#ffff7f','#bfff7f','#7fff7f','#7
 const DEFAULT_TIERS=[['S','#ff7f7f'],['A','#ffbf7f'],['B','#ffdf7f'],['C','#ffff7f'],['D','#bfff7f'],['F','#7fff7f']];
 const APP_PREFERENCES_KEY='tierforge:preferences';
 const LABEL_MODES=new Set(['find','show','hover']);
+const CURSORS={
+  ironclad:{name:'Ironclad',src:'assets/cursors/ironclad.png',hotspot:[2.5,.5]},
+  necrobinder:{name:'Necrobinder',src:'assets/cursors/necrobinder.png',hotspot:[5,2]},
+  silent:{name:'Silent',src:'assets/cursors/silent.png',hotspot:[4,1.5]}
+};
+const DEFAULT_CURSOR_ICON='assets/cursors/default.png';
+const cursorIconSources=new Map();
+window.tierforgeCursor={current:storedCursor};
 
 /* ============================ STATE ============================ */
 let S=null, sel=new Set(), lastClicked=null, undoStack=[], compareSubBoardId=null, comparisonState=null,
@@ -79,6 +87,71 @@ function storeLabelMode(mode){
     localStorage.setItem(APP_PREFERENCES_KEY,JSON.stringify({...preferences,labels:mode}));
     return true;
   }catch(e){ return false; }
+}
+function storedCursor(){
+  try{
+    const cursor=JSON.parse(localStorage.getItem(APP_PREFERENCES_KEY)||'null')?.cursor;
+    return CURSORS[cursor]?cursor:'';
+  }catch(e){ return ''; }
+}
+function storeCursor(cursor){
+  try{
+    const preferences=JSON.parse(localStorage.getItem(APP_PREFERENCES_KEY)||'{}');
+    localStorage.setItem(APP_PREFERENCES_KEY,JSON.stringify({...preferences,cursor}));
+    return true;
+  }catch(e){ return false; }
+}
+function cursorIconSource(cursor){
+  return cursorIconSources.get(cursor||'system')||(CURSORS[cursor]?.src||DEFAULT_CURSOR_ICON);
+}
+async function trimCursorIcon(source){
+  const image=await new Promise((resolve,reject)=>{
+    const next=new Image(); next.onload=()=>resolve(next); next.onerror=reject; next.src=source;
+  });
+  const canvas=document.createElement('canvas'); canvas.width=image.naturalWidth; canvas.height=image.naturalHeight;
+  const context=canvas.getContext('2d',{willReadFrequently:true}); context.drawImage(image,0,0);
+  const {data}=context.getImageData(0,0,canvas.width,canvas.height);
+  let left=canvas.width, top=canvas.height, right=-1, bottom=-1;
+  for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){
+    if(data[(y*canvas.width+x)*4+3]===0)continue;
+    left=Math.min(left,x); top=Math.min(top,y); right=Math.max(right,x); bottom=Math.max(bottom,y);
+  }
+  if(right<left)return source;
+  const width=right-left+1, height=bottom-top+1;
+  const cropped=document.createElement('canvas'); cropped.width=width; cropped.height=height;
+  cropped.getContext('2d').drawImage(image,left,top,width,height,0,0,width,height);
+  return cropped.toDataURL('image/png');
+}
+async function prepareCursorIcons(){
+  const sources=[['system',DEFAULT_CURSOR_ICON],...Object.entries(CURSORS).map(([id,cursor])=>[id,cursor.src])];
+  await Promise.all(sources.map(async([id,source])=>{
+    try{ cursorIconSources.set(id,await trimCursorIcon(source)); }catch(e){}
+  }));
+  $$('.cursor-option').forEach(option=>{
+    const image=option.querySelector('img'); if(image)image.src=cursorIconSource(option.dataset.cursor);
+  });
+  applyCursor(storedCursor());
+}
+function applyCursor(cursor,save=false){
+  const choice=CURSORS[cursor], overlay=$('#customCursor'), pickerButton=$('#btnCursorPicker');
+  document.body.classList.toggle('custom-cursor',!!choice);
+  overlay.hidden=true; overlay.classList.remove('clicking');
+  if(choice){
+    const size=32;
+    overlay.querySelector('img').src=choice.src;
+    overlay.style.setProperty('--cursor-size',size+'px');
+    overlay.style.setProperty('--cursor-hotspot-x',choice.hotspot[0]+'px');
+    overlay.style.setProperty('--cursor-hotspot-y',choice.hotspot[1]+'px');
+    pickerButton.replaceChildren(Object.assign(document.createElement('img'),{src:cursorIconSource(cursor),alt:''}));
+    pickerButton.title=`Cursor: ${choice.name}`;
+    pickerButton.setAttribute('aria-label',`Cursor: ${choice.name}`);
+  }else{
+    pickerButton.replaceChildren(Object.assign(document.createElement('img'),{src:cursorIconSource(''),alt:''}));
+    pickerButton.title='Choose cursor';
+    pickerButton.setAttribute('aria-label','Choose cursor');
+  }
+  $$('.cursor-option').forEach(button=>button.setAttribute('aria-checked',String(button.dataset.cursor===cursor)));
+  if(save){ storeCursor(cursor); window.collaboration?.cursorChanged?.(cursor); }
 }
 function applyLabelPreference(){
   const boardMode=LABEL_MODES.has(S.opts?.labels)?S.opts.labels:'find';
@@ -1304,6 +1377,36 @@ $('#fileinput').onchange=e=>addFiles([...e.target.files]);
 $('#btnHelp').onclick=()=>dlgHelp.showModal();
 $('#btnSettings').onclick=e=>{ e.stopPropagation(); $('#settingsMenu').hidden=!$('#settingsMenu').hidden; };
 document.addEventListener('click',e=>{ if(!e.target.closest('#settingsWrap'))$('#settingsMenu').hidden=true; });
+(()=>{
+  const picker=$('#cursorPicker'), trigger=$('#btnCursorPicker'), overlay=$('#customCursor');
+  const close=()=>{ picker.hidden=true; trigger.setAttribute('aria-expanded','false'); };
+  trigger.onclick=e=>{
+    e.stopPropagation(); picker.hidden=!picker.hidden;
+    trigger.setAttribute('aria-expanded',String(!picker.hidden));
+  };
+  picker.onclick=e=>{
+    e.stopPropagation();
+    const option=e.target.closest('[data-cursor]');
+    if(option){ applyCursor(option.dataset.cursor,true); close(); }
+  };
+  document.addEventListener('click',e=>{ if(!e.target.closest('#cursorPickerWrap'))close(); });
+  document.addEventListener('pointermove',e=>{
+    if(!document.body.classList.contains('custom-cursor')||e.pointerType==='touch')return;
+    overlay.style.transform=`translate3d(${e.clientX}px,${e.clientY}px,0)`; overlay.hidden=false;
+  },{passive:true});
+  document.addEventListener('pointerdown',e=>{
+    if(e.button===0&&document.body.classList.contains('custom-cursor'))overlay.classList.add('clicking');
+  },true);
+  const release=()=>overlay.classList.remove('clicking');
+  window.addEventListener('pointerup',release,true); window.addEventListener('pointercancel',release,true);
+  window.addEventListener('blur',()=>{ release(); overlay.hidden=true; });
+  document.addEventListener('pointerout',e=>{ if(!e.relatedTarget)overlay.hidden=true; });
+  document.addEventListener('pointerover',e=>{
+    if(document.body.classList.contains('custom-cursor')&&e.pointerType!=='touch')overlay.hidden=false;
+  });
+  applyCursor(storedCursor());
+  prepareCursorIcons();
+})();
 $('#btnImport').onclick=async()=>{ dlgImport.showModal(); await refreshHelperState(); renderGameSources(); };
 async function refreshHelperState(){
   const el=$('#helperstate'); el.textContent='Checking for the local runtime…';
