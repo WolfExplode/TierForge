@@ -248,7 +248,8 @@ function comparisonFor(id){
   return {tierPlaces:0,positionPlaces:ahead||-behind,movedAhead:ahead,movedBehind:behind,other};
 }
 function snapshot(){ storeActiveSubBoard(); undoStack.push(JSON.stringify(S)); if(undoStack.length>40)undoStack.shift(); }
-function undo(){ if(!undoStack.length)return toast('Nothing to undo');
+function undo(){ if(window.collaboration?.undo?.())return;
+  if(!undoStack.length)return toast('Nothing to undo');
   S=JSON.parse(undoStack.pop()); prepareState(); sel.clear(); render(); toast('Undone'); }
 
 /* list helpers -------------------------------------------------- */
@@ -356,7 +357,10 @@ function itemNode(id){
     +(positionShift?`<span class="rank-shift horizontal ${positionDirection}" aria-label="${esc(changes[changes.length-1])}">${movementArrow(positionDirection)}<b>${positionShift}</b></span>`:'')
     +`<span class="cap">${esc(it.name)}${meta?`<span class="meta"> — ${esc(meta)}</span>`:''}</span>`;
   if(hasImage)attachItemImage(el.querySelector('img'),it);
-  else el.style.cssText+='background:#2a3040;display:flex;align-items:center;justify-content:center';
+  else{
+    el.classList.add('missing-image');
+    el.insertAdjacentHTML('afterbegin',`<span class="missing-image-mark" aria-hidden="true">?</span>`);
+  }
   return el;
 }
 function fillDrop(node,ids){ const f=document.createDocumentFragment();
@@ -392,7 +396,8 @@ window.addEventListener('resize',()=>{ if($('#board').isConnected)renderTierBrac
 
 function render(){
   ensureSubBoards(); applyLabelPreference(); renderSubBoards(); comparisonState=null;
-  document.body.className='lab-'+S.opts.labels;
+  document.body.classList.remove('lab-find','lab-show','lab-hover');
+  document.body.classList.add('lab-'+S.opts.labels);
   applyTitleWidth();
   $('#title').value=S.title; $('#labmode').value=S.opts.labels;
 
@@ -437,12 +442,14 @@ function render(){
   $('#stat').textContent=`${total} items · ${S.tiers.length} tiers · ${total-S.pool.length} ranked`;
   $('#selinfo').textContent=sel.size?`${sel.size} selected`:'';
   applyFilter();
+  window.collaboration?.afterRender?.();
 }
 
 /* ============================ SELECTION ============================ */
 function setSel(ids){ sel=new Set(ids); syncSel(); }
 function syncSel(){ $$('.item').forEach(e=>e.classList.toggle('sel',sel.has(e.dataset.id)));
-  $('#selinfo').textContent=sel.size?`${sel.size} selected`:''; }
+  $('#selinfo').textContent=sel.size?`${sel.size} selected`:'';
+  window.collaboration?.selectionChanged?.(); }
 function flatOrder(){ return [...S.tiers.flatMap(t=>t.items),...S.pool]; }
 
 /* ============================ EVENTS: board ============================ */
@@ -1077,7 +1084,8 @@ $('#q').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); selectHits(); } 
 $('#btnClearSearch').onclick=()=>{ $('#q').value=''; applyFilter(); $('#q').focus(); };
 $('#labmode').onchange=e=>{
   S.opts.labels=e.target.value; storeLabelMode(e.target.value);
-  document.body.className='lab-'+e.target.value; persist();
+  document.body.classList.remove('lab-find','lab-show','lab-hover');
+  document.body.classList.add('lab-'+e.target.value); persist();
 };
 function switchSubBoard(id){
   const next=S.subBoards.find(sub=>sub.id===id); if(!next||next.id===S.activeSubBoardId)return;
@@ -1220,7 +1228,9 @@ function applyItemMetadata(target,metadata){
   if(metadata.src)target.src=metadata.src;
   return target;
 }
-async function addFiles(files){ if(!files.length)return; snapshot();
+async function addFiles(files){
+  if(window.collaboration?.isActive?.())return toast('Local images are unavailable in co-op sessions');
+  if(!files.length)return; snapshot();
   for(const f of files){ const url=await new Promise(r=>{ const fr=new FileReader();
       fr.onload=()=>r(fr.result); fr.readAsDataURL(f); });
     const id=uid(), metadata=await metadataFromImage(f);
@@ -1346,6 +1356,7 @@ async function renameStoredBoard(oldName,newName){
 function persist(){
   ensureSubBoards();
   storeActiveSubBoard();
+  if(window.collaboration?.handlePersist?.())return;
   clearTimeout(saveTimer);
   saveTimer=setTimeout(async()=>{ if(!await storeBoard(AUTOSAVE,S))warnNoStorage(); },400);
 }
@@ -1378,6 +1389,7 @@ async function renderBoards(){
     :'<div class="muted">No saved boards yet.</div>';
   $$('[data-board-label]',wrap).forEach(x=>x.ondblclick=()=>startInlineBoardRename(x));
   $$('button[data-load]',wrap).forEach(x=>x.onclick=async()=>{
+    if(window.collaboration?.isActive?.())return toast('Leave co-op before loading another saved board');
     try{ const board=await loadStoredBoard(x.dataset.load);
       snapshot(); S=board; prepareState(); sel.clear(); persist(); render(); dlgBoards.close(); }
     catch(e){ toast('Could not load that board'); } });
@@ -2273,5 +2285,6 @@ function wrapText(ctx,text,x,y,maxw,lh){
   prepareState();
   if(hadSize)persist();
   render();
+  await window.collaboration?.boot?.();
   if(!helperBase&&!hasBrowserStorage)warnNoStorage();
 })();

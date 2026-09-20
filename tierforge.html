@@ -50,6 +50,8 @@
     <button id="btnImport" class="primary">Import ▾</button>
     <button id="btnExport">Export ▾</button>
     <button id="btnBoards">Boards</button>
+    <button id="btnCoop" class="coop-button" hidden>Co-op</button>
+    <div id="coopPresence" class="coop-presence" hidden></div>
     <div class="sep"></div>
     <div id="searchbox">
       <input id="q" placeholder="Search name, tag, note…  ( / or Ctrl+F )" spellcheck="false">
@@ -81,6 +83,8 @@
 <aside id="insp"></aside>
 <div id="toast"></div>
 <div id="drophint">Drop images to add them to the pool</div>
+<div id="coopConnection" class="coop-connection" hidden>Reconnecting… shared editing is paused</div>
+<div id="coopCursors" aria-hidden="true"></div>
 
 <!-- ============ IMPORT DIALOG ============ -->
 <dialog id="dlgImport">
@@ -188,6 +192,50 @@
   <div class="dfoot"><button id="expCopy" hidden>Copy</button><button onclick="dlgExport.close()">Close</button></div>
 </dialog>
 
+<!-- ============ CO-OP DIALOG ============ -->
+<dialog id="dlgCoop">
+  <h3>Co-op session</h3>
+  <div class="dbody">
+    <div id="coopIdle">
+      <p class="muted">Work on this tier list together in real time. Sessions support up to four people and disappear shortly after everyone leaves.</p>
+      <label>Display name <span class="muted">(optional)</span>
+        <input id="coopName" maxlength="32" placeholder="Player 1">
+      </label>
+      <div class="coop-start-actions">
+        <button id="coopStart" class="primary">Start with this board</button>
+        <span class="muted">or</span>
+        <input id="coopCode" maxlength="8" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code">
+        <button id="coopJoin">Join</button>
+      </div>
+      <div id="coopError" class="coop-error" hidden></div>
+    </div>
+    <div id="coopActive" hidden>
+      <div class="coop-room-line">
+        <span>Room <strong id="coopRoomCode"></strong></span>
+        <button id="coopCopyLink">Copy invite link</button>
+      </div>
+      <div id="coopMembers" class="coop-members"></div>
+      <p class="note">The room is temporary. Save a copy before everyone leaves if you want to keep the result.</p>
+    </div>
+  </div>
+  <div class="dfoot">
+    <button id="coopSave" hidden>Save a copy</button>
+    <button id="coopLeave" hidden>Leave</button>
+    <button id="coopEnd" class="danger" hidden>End session</button>
+    <button id="coopClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="dlgCoopEnd">
+  <h3>End co-op session?</h3>
+  <div class="dbody"><p>The shared board and its history will be permanently deleted for everyone.</p></div>
+  <div class="dfoot">
+    <button id="coopEndCancel">Cancel</button>
+    <button id="coopEndWithout" class="danger">End without saving</button>
+    <button id="coopSaveEnd" class="primary">Save a copy and end</button>
+  </div>
+</dialog>
+
 <!-- ============ BOARDS DIALOG ============ -->
 <dialog id="dlgBoards">
   <h3>Saved boards</h3>
@@ -246,5 +294,6 @@
 
 <script src="png-metadata.js"></script>
 <script src="app.js"></script>
+<script src="collab.js"></script>
 </body>
 </html>

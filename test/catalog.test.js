@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
-import { allowedImageHost } from '../src/worker.js';
+import { allowedImageHost, sanitizeSharedBoard } from '../src/worker.js';
 await import('../png-metadata.js');
 
 for (const [name, minimum] of [['sts2-relics', 250], ['sts2-cards', 500]]) {
@@ -26,4 +26,18 @@ test('image proxy only permits configured source hosts', () => {
   assert.equal(allowedImageHost('cdn.tiermaker.com'), true);
   assert.equal(allowedImageHost('example.com'), false);
   assert.equal(allowedImageHost('tiermaker.com.example.com'), false);
+});
+
+test('co-op boards keep shared images and replace local images with placeholders', () => {
+  const board = { tiers: [], pool: ['local', 'catalog', 'remote'], items: {
+    local: { id: 'local', name: 'Local', img: 'tierforge-image:private.png', localImg: 'Images/imports/private.png' },
+    catalog: { id: 'catalog', name: 'Catalog', img: 'Images/catalogs/game/item.png' },
+    remote: { id: 'remote', name: 'Remote', img: 'https://example.com/item.png' },
+  } };
+  const shared = sanitizeSharedBoard(board);
+  assert.equal(shared.items.local.img, undefined);
+  assert.equal(shared.items.local.localImg, undefined);
+  assert.equal(shared.items.catalog.img, 'Images/catalogs/game/item.png');
+  assert.equal(shared.items.remote.img, 'https://example.com/item.png');
+  assert.equal(board.items.local.img, 'tierforge-image:private.png');
 });

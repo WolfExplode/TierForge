@@ -39,3 +39,12 @@ performs Imports, materializes images, and persists Boards. The browser discover
 
 The reserved `_autosave.tierforge.json` Board written after edits and restored at startup. Named
 Boards are explicit snapshots and are not replaced by Autosave.
+
+## Co-op session
+
+An ephemeral hosted room containing one Board, an ordered edit history, and up to four participants.
+The creator is the initial host and controls only room lifecycle; every participant can edit the
+Board. Sessions use operation-based synchronization so each participant can selectively undo their
+own latest change without overwriting newer conflicting work. A disconnected host transfers to the
+longest-connected participant after 60 seconds. The room is deleted 60 seconds after everyone
+disconnects and never writes into a participant's normal Autosave.

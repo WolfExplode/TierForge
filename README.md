@@ -54,3 +54,15 @@ npm run deploy
 For Git-connected deployments, leave the build command blank and use `npx wrangler deploy` as the deploy command. No secrets, databases, or manually provisioned Cloudflare resources are required.
 
 Hosted boards use browser `localStorage`, so export important boards before clearing site data or switching devices. Catalog assets are bundled; refresh them with `npm run update:catalogs`.
+
+## Co-op
+
+The hosted site can start an ephemeral co-op room from the current board. Share its eight-character
+code or invite link with up to three other people. Moves, edits, cursors, selections, imports, and
+per-person undo synchronize in real time. The host can end the room; if the host disconnects for 60
+seconds, hosting transfers to the longest-connected guest.
+
+Co-op rooms do not support local-only images. Those cards retain their names and metadata but use a
+missing-image placeholder. Rooms are deleted 60 seconds after everyone disconnects, so use **Save a
+copy** or Export to keep the result. Co-op is intentionally unavailable in `TierForge.cmd` and
+`npm run serve`.

@@ -13,7 +13,7 @@
     "serve": "node src/server.js",
     "start": "npm run serve",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/importer.js && node --check src/worker.js && node --check png-metadata.js && node --check app.js && node --check scripts/build.js && node --check scripts/link-catalog-images.js && node --check scripts/update-catalogs.js"
+    "check": "node --check src/server.js && node --check src/importer.js && node --check src/worker.js && node --check png-metadata.js && node --check app.js && node --check collab.js && node --check scripts/build.js && node --check scripts/link-catalog-images.js && node --check scripts/update-catalogs.js"
   },
   "devDependencies": {
     "wrangler": "^4.129.0"
