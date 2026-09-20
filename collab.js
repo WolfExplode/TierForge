@@ -14,7 +14,7 @@ window.collaboration=(()=>{
   const state={active:false,connected:false,code:'',participantId:'',token:'',hostId:'',
     participants:new Map(),baseBoard:null,inflight:null,saved:false,intentionalClose:false,
     reconnectUntil:0,reconnectTimer:null,
-    lastPointer:{x:null,y:null,boardX:null,boardY:null,anchor:null},remote:new Map()};
+    lastPointer:{x:null,y:null,boardX:null,boardY:null,anchor:null,pressed:false},remote:new Map()};
 
   function shareableImage(value){
     if(typeof value!=='string'||!value)return '';
@@ -204,6 +204,7 @@ window.collaboration=(()=>{
       if(message.participantId!==state.participantId){
         state.remote.set(message.participantId,{x:message.x,y:message.y,
           boardX:message.boardX,boardY:message.boardY,anchor:message.anchor||null,cursor:message.cursor||'',
+          pressed:message.pressed===true,
           selection:message.selection||[]});
         renderRemotePresence();
       }
@@ -308,6 +309,7 @@ window.collaboration=(()=>{
       x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height,
       boardX:(event.clientX-rect.left)*canvas.offsetWidth/rect.width,
       boardY:(event.clientY-rect.top)*canvas.offsetHeight/rect.height,
+      pressed:state.lastPointer.pressed===true,
       anchor:targetRect?{itemId:target.dataset.id,
         x:(event.clientX-targetRect.left)/targetRect.width,
         y:(event.clientY-targetRect.top)/targetRect.height}:null
@@ -318,7 +320,15 @@ window.collaboration=(()=>{
   }
   function pointerLeft(){
     if(!state.active)return;
-    state.lastPointer={x:null,y:null,boardX:null,boardY:null,anchor:null}; selectionChanged();
+    state.lastPointer={x:null,y:null,boardX:null,boardY:null,anchor:null,pressed:false}; selectionChanged();
+  }
+  function pointerPressed(event){
+    if(event.button!==0||!state.active)return;
+    state.lastPointer.pressed=true; pointerMoved(event); selectionChanged();
+  }
+  function pointerReleased(){
+    if(!state.active||!state.lastPointer.pressed)return;
+    state.lastPointer.pressed=false; selectionChanged();
   }
   function remoteCursorPosition(remote,canvas,rect){
     const anchored=remote.anchor?.itemId&&$(`.item[data-id="${CSS.escape(remote.anchor.itemId)}"]`);
@@ -335,7 +345,7 @@ window.collaboration=(()=>{
   }
   function renderRemotePresence(){
     $$('.remote-selection').forEach(element=>element.remove());
-    $('#coopCursors').replaceChildren();
+    const cursorLayer=$('#coopCursors'), visibleCursors=new Set();
     const canvas=$('#canvas'),rect=canvas.getBoundingClientRect();
     let selectionLayer=0;
     for(const [id,remote] of state.remote){
@@ -348,17 +358,23 @@ window.collaboration=(()=>{
       });
       selectionLayer++;
       if(remote.x===null||remote.y===null||!Number.isFinite(remote.x)||!Number.isFinite(remote.y))continue;
-      const cursor=document.createElement('div'); cursor.className='remote-cursor';
-      cursor.dataset.participant=id;
+      visibleCursors.add(id);
+      let cursor=$(`.remote-cursor[data-participant="${CSS.escape(id)}"]`,cursorLayer);
+      if(!cursor){
+        cursor=document.createElement('div'); cursor.className='remote-cursor custom';
+        cursor.dataset.participant=id; cursor.innerHTML='<img alt=""><span></span>'; cursorLayer.appendChild(cursor);
+      }
       const position=remoteCursorPosition(remote,canvas,rect);
       cursor.style.left=position.left+'px'; cursor.style.top=position.top+'px';
       cursor.style.setProperty('--remote-color',member.color);
       const source=REMOTE_CURSOR_SOURCES[remote.cursor]||REMOTE_CURSOR_SOURCES[''];
-      cursor.classList.add('custom');
-      cursor.innerHTML='<img alt=""><span></span>';
-      cursor.querySelector('img').src=source; cursor.querySelector('span').textContent=member.name;
-      $('#coopCursors').appendChild(cursor);
+      const image=cursor.querySelector('img'); if(image.getAttribute('src')!==source)image.src=source;
+      cursor.querySelector('span').textContent=member.name;
+      cursor.classList.toggle('clicking',remote.pressed===true);
     }
+    $$('.remote-cursor',cursorLayer).forEach(cursor=>{
+      if(!visibleCursors.has(cursor.dataset.participant))cursor.remove();
+    });
   }
   function viewChanged(){
     if(!state.active||viewChanged.pending)return;
@@ -417,6 +433,10 @@ window.collaboration=(()=>{
     $('#coopSaveEnd').onclick=async()=>{if(await saveCopy())endSession();};
     $('#canvas').addEventListener('pointermove',pointerMoved);
     $('#canvas').addEventListener('pointerleave',pointerLeft);
+    $('#canvas').addEventListener('pointerdown',pointerPressed,true);
+    window.addEventListener('pointerup',pointerReleased,true);
+    window.addEventListener('pointercancel',pointerReleased,true);
+    window.addEventListener('blur',pointerReleased);
     window.addEventListener('resize',renderRemotePresence);
     const code=new URL(location.href).searchParams.get('session')?.toUpperCase();
     if(code&&/^[A-Z2-9]{8}$/.test(code)){

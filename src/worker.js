@@ -197,13 +197,14 @@ export class TierForgeRoom {
         ? { itemId: sourceAnchor.itemId.slice(0, 128),
           x: Math.max(0, Math.min(1, anchorX)), y: Math.max(0, Math.min(1, anchorY)) } : null;
       const cursor = ['ironclad', 'necrobinder', 'silent'].includes(message.cursor) ? message.cursor : '';
+      const pressed = message.pressed === true;
       const selection = Array.isArray(message.selection) ? message.selection.filter(id => typeof id === 'string').slice(0, 500) : [];
       this.broadcast({ type: 'cursor', participantId: participant.id,
         x: Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : null,
         y: Number.isFinite(y) ? Math.max(0, Math.min(1, y)) : null,
         boardX: Number.isFinite(boardX) ? Math.max(-10000, Math.min(10000, boardX)) : null,
         boardY: Number.isFinite(boardY) ? Math.max(-10000, Math.min(10000, boardY)) : null,
-        anchor, cursor, selection }, socket);
+        anchor, cursor, pressed, selection }, socket);
       return;
     }
     if (message.type === 'rename') {

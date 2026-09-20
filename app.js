@@ -1077,6 +1077,7 @@ function openInsp(id){
 
 /* ============================ DRAWING ============================ */
 function currentDrawing(){
+  if(!S)return {strokes:[]};
   const sub=activeSubBoard();
   if(!sub)return {strokes:[]};
   if(!sub.drawing||!Array.isArray(sub.drawing.strokes))sub.drawing={strokes:[]};
@@ -1205,8 +1206,12 @@ function finishDrawing(event){
 (()=>{
   const main=document.querySelector('main'), canvas=$('#canvas');
   const view={x:0,y:0,scale:1};
-  // Permit a little extra context around larger boards without making tiles too small.
-  const MIN=.85, MAX=5;
+  // A fixed 1500px board is useful for stable wrapping, but Windows display
+  // scaling can make a 1920px monitor only 1280 CSS pixels wide. Allow the
+  // initial view to fit that board rather than opening with its right edge cut
+  // off. Manual zoom still has a conservative lower bound for small windows.
+  const MIN=.35, MAX=5;
+  let userAdjusted=false;
   function apply(){
     canvas.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.scale})`;
     // Remote cursors use board-space positions. Reproject them whenever this
@@ -1216,11 +1221,22 @@ function finishDrawing(event){
     if(dragIds.length)updateHeldItemDrag();
     if(draggedTierIds.length)updateTierDrag();
   }
+  function fitToViewport(){
+    if(userAdjusted||!main.clientWidth||!canvas.offsetWidth)return;
+    const scale=Math.min(1,main.clientWidth/canvas.offsetWidth);
+    view.scale=Math.max(MIN,scale); view.x=0; view.y=0; apply();
+  }
+  // Observe both sides: the viewport changes when the window moves between
+  // monitors, while the canvas changes after a board is rendered or replaced.
+  const fitObserver=new ResizeObserver(()=>requestAnimationFrame(fitToViewport));
+  fitObserver.observe(main); fitObserver.observe(canvas);
+  requestAnimationFrame(fitToViewport);
 
   let dragging=false, lastX=0, lastY=0;
   main.addEventListener('mousedown',e=>{
     if(e.button!==1) return;
     e.preventDefault();
+    userAdjusted=true;
     dragging=true; lastX=e.clientX; lastY=e.clientY; main.classList.add('panning');
   });
   window.addEventListener('mousemove',e=>{
@@ -1235,6 +1251,7 @@ function finishDrawing(event){
 
   main.addEventListener('wheel',e=>{
     e.preventDefault();
+    userAdjusted=true;
     const rect=main.getBoundingClientRect();
     const mx=e.clientX-rect.left, my=e.clientY-rect.top;
     const cx=(mx-view.x)/view.scale, cy=(my-view.y)/view.scale;
