@@ -1125,18 +1125,25 @@ function scheduleDrawingRender(){
   drawingRenderFrame=requestAnimationFrame(renderDrawing);
 }
 function eraserDiameter(){ return Math.max(54,S.opts.drawWidth*7.5); }
-function drawingToolCursorSource(){ return `assets/drawing/${drawingMode==='erase'?'eraser':'pencil'}.png`; }
+function drawingModeForEvent(event){
+  const rightMouseButton=event?.pointerType==='mouse'&&
+    ((event.type==='pointerdown'&&event.button===2)||Boolean(event.buttons&2));
+  return drawingMode==='pen'&&rightMouseButton?'erase':drawingMode;
+}
+function drawingToolCursorSource(event){
+  return `assets/drawing/${drawingModeForEvent(event)==='erase'?'eraser':'pencil'}.png`;
+}
 function hideDrawingToolCursor(){ $('#drawingToolCursor').hidden=true; }
 function showDrawingToolCursor(event){
   if(!drawingMode||event.pointerType==='touch')return hideDrawingToolCursor();
   const cursor=$('#drawingToolCursor'), image=cursor.querySelector('img');
-  const source=drawingToolCursorSource();
+  const source=drawingToolCursorSource(event);
   if(image.getAttribute('src')!==source)image.src=source;
   cursor.style.transform=`translate3d(${event.clientX}px,${event.clientY}px,0)`; cursor.hidden=false;
 }
 function hideEraserCursor(){ $('#eraserCursor').hidden=true; }
 function showEraserCursor(event){
-  if(drawingMode!=='erase')return hideEraserCursor();
+  if(drawingModeForEvent(event)!=='erase')return hideEraserCursor();
   const surface=$('#drawingSurface'), rect=surface.getBoundingClientRect();
   const width=Number(surface.dataset.logicalWidth)||surface.offsetWidth;
   const diameter=eraserDiameter()*rect.width/width;
@@ -1177,7 +1184,9 @@ function finishDrawing(event){
   window.collaboration?.drawingFinished?.(drawingPointer.stroke);
   const surface=$('#drawingSurface');
   if(surface.hasPointerCapture(event.pointerId))surface.releasePointerCapture(event.pointerId);
-  drawingPointer=null; persist(); scheduleDrawingRender();
+  drawingPointer=null;
+  showDrawingToolCursor(event); showEraserCursor(event);
+  persist(); scheduleDrawingRender();
 }
 
 (()=>{
@@ -1197,10 +1206,12 @@ function finishDrawing(event){
   document.addEventListener('pointerout',event=>{ if(!event.relatedTarget)hideDrawingToolCursor(); });
   window.addEventListener('blur',hideDrawingToolCursor);
   surface.addEventListener('pointerdown',event=>{
-    if(!drawingMode||(event.pointerType==='mouse'&&event.button!==0))return;
+    const strokeMode=drawingModeForEvent(event);
+    const supportedMouseButton=event.button===0||(drawingMode==='pen'&&event.button===2);
+    if(!drawingMode||(event.pointerType==='mouse'&&!supportedMouseButton))return;
     showEraserCursor(event); event.preventDefault(); event.stopPropagation(); snapshot();
-    const stroke={tool:drawingMode,color:S.opts.drawColor,
-      width:drawingMode==='erase'?Math.max(54,S.opts.drawWidth*7.5):S.opts.drawWidth,
+    const stroke={tool:strokeMode,color:S.opts.drawColor,
+      width:strokeMode==='erase'?Math.max(54,S.opts.drawWidth*7.5):S.opts.drawWidth,
       points:[drawingPoint(event)]};
     currentDrawing().strokes.push(stroke);
     drawingPointer={pointerId:event.pointerId,stroke,subBoardId:activeSubBoard().id};
@@ -1217,6 +1228,9 @@ function finishDrawing(event){
   surface.addEventListener('pointerleave',hideEraserCursor);
   surface.addEventListener('pointerup',finishDrawing);
   surface.addEventListener('pointercancel',finishDrawing);
+  surface.addEventListener('contextmenu',event=>{
+    if(drawingMode==='pen'){event.preventDefault();event.stopPropagation();}
+  });
   surface.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
   new ResizeObserver(scheduleDrawingRender).observe($('#canvas'));
 })();
