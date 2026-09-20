@@ -190,10 +190,19 @@ export class TierForgeRoom {
     try { message = JSON.parse(String(rawMessage)); } catch { return; }
     if (message.type === 'cursor') {
       const x = Number(message.x), y = Number(message.y);
+      const boardX = Number(message.boardX), boardY = Number(message.boardY);
+      const sourceAnchor = message.anchor && typeof message.anchor === 'object' ? message.anchor : null;
+      const anchorX = Number(sourceAnchor?.x), anchorY = Number(sourceAnchor?.y);
+      const anchor = typeof sourceAnchor?.itemId === 'string' && Number.isFinite(anchorX) && Number.isFinite(anchorY)
+        ? { itemId: sourceAnchor.itemId.slice(0, 128),
+          x: Math.max(0, Math.min(1, anchorX)), y: Math.max(0, Math.min(1, anchorY)) } : null;
       const selection = Array.isArray(message.selection) ? message.selection.filter(id => typeof id === 'string').slice(0, 500) : [];
       this.broadcast({ type: 'cursor', participantId: participant.id,
         x: Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : null,
-        y: Number.isFinite(y) ? Math.max(0, Math.min(1, y)) : null, selection }, socket);
+        y: Number.isFinite(y) ? Math.max(0, Math.min(1, y)) : null,
+        boardX: Number.isFinite(boardX) ? Math.max(-10000, Math.min(10000, boardX)) : null,
+        boardY: Number.isFinite(boardY) ? Math.max(-10000, Math.min(10000, boardY)) : null,
+        anchor, selection }, socket);
       return;
     }
     if (message.type === 'rename') {

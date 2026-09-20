@@ -9,7 +9,8 @@ window.collaboration=(()=>{
   let booted=false;
   const state={active:false,connected:false,code:'',participantId:'',token:'',hostId:'',
     participants:new Map(),baseBoard:null,inflight:null,saved:false,intentionalClose:false,
-    reconnectUntil:0,reconnectTimer:null,lastPointer:{x:null,y:null},remote:new Map()};
+    reconnectUntil:0,reconnectTimer:null,
+    lastPointer:{x:null,y:null,boardX:null,boardY:null,anchor:null},remote:new Map()};
 
   function shareableImage(value){
     if(typeof value!=='string'||!value)return '';
@@ -197,7 +198,9 @@ window.collaboration=(()=>{
     if(message.type==='presence'){updatePresence(message);return;}
     if(message.type==='cursor'){
       if(message.participantId!==state.participantId){
-        state.remote.set(message.participantId,{x:message.x,y:message.y,selection:message.selection||[]});
+        state.remote.set(message.participantId,{x:message.x,y:message.y,
+          boardX:message.boardX,boardY:message.boardY,anchor:message.anchor||null,
+          selection:message.selection||[]});
         renderRemotePresence();
       }
       return;
@@ -289,19 +292,40 @@ window.collaboration=(()=>{
 
   function selectionChanged(){
     if(!state.active||!state.connected)return;
-    send({type:'cursor',x:state.lastPointer.x,y:state.lastPointer.y,selection:[...sel]});
+    send({type:'cursor',...state.lastPointer,selection:[...sel]});
   }
   function pointerMoved(event){
     if(!state.active||!state.connected)return;
     const canvas=$('#canvas'),rect=canvas.getBoundingClientRect();
-    state.lastPointer={x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height};
+    const target=event.target.closest?.('.item'),targetRect=target?.getBoundingClientRect();
+    state.lastPointer={
+      x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height,
+      boardX:(event.clientX-rect.left)*canvas.offsetWidth/rect.width,
+      boardY:(event.clientY-rect.top)*canvas.offsetHeight/rect.height,
+      anchor:targetRect?{itemId:target.dataset.id,
+        x:(event.clientX-targetRect.left)/targetRect.width,
+        y:(event.clientY-targetRect.top)/targetRect.height}:null
+    };
     if(pointerMoved.pending)return;
     pointerMoved.pending=true;
     setTimeout(()=>{pointerMoved.pending=false;selectionChanged();},35);
   }
   function pointerLeft(){
     if(!state.active)return;
-    state.lastPointer={x:null,y:null}; selectionChanged();
+    state.lastPointer={x:null,y:null,boardX:null,boardY:null,anchor:null}; selectionChanged();
+  }
+  function remoteCursorPosition(remote,canvas,rect){
+    const anchored=remote.anchor?.itemId&&$(`.item[data-id="${CSS.escape(remote.anchor.itemId)}"]`);
+    if(anchored&&Number.isFinite(remote.anchor.x)&&Number.isFinite(remote.anchor.y)){
+      const itemRect=anchored.getBoundingClientRect();
+      return {left:itemRect.left+remote.anchor.x*itemRect.width,
+        top:itemRect.top+remote.anchor.y*itemRect.height};
+    }
+    if(Number.isFinite(remote.boardX)&&Number.isFinite(remote.boardY)){
+      return {left:rect.left+remote.boardX*rect.width/canvas.offsetWidth,
+        top:rect.top+remote.boardY*rect.height/canvas.offsetHeight};
+    }
+    return {left:rect.left+remote.x*rect.width,top:rect.top+remote.y*rect.height};
   }
   function renderRemotePresence(){
     $$('.remote-selection').forEach(element=>element.remove());
@@ -320,7 +344,8 @@ window.collaboration=(()=>{
       if(remote.x===null||remote.y===null||!Number.isFinite(remote.x)||!Number.isFinite(remote.y))continue;
       const cursor=document.createElement('div'); cursor.className='remote-cursor';
       cursor.dataset.participant=id;
-      cursor.style.left=`${rect.left+remote.x*rect.width}px`; cursor.style.top=`${rect.top+remote.y*rect.height}px`;
+      const position=remoteCursorPosition(remote,canvas,rect);
+      cursor.style.left=position.left+'px'; cursor.style.top=position.top+'px';
       cursor.style.setProperty('--remote-color',member.color);
       cursor.innerHTML='<b></b><span></span>'; cursor.querySelector('span').textContent=member.name;
       $('#coopCursors').appendChild(cursor);
@@ -334,8 +359,8 @@ window.collaboration=(()=>{
       $$('.remote-cursor').forEach(cursor=>{
         const remote=state.remote.get(cursor.dataset.participant);
         if(!remote||remote.x===null||remote.y===null)return;
-        cursor.style.left=`${rect.left+remote.x*rect.width}px`;
-        cursor.style.top=`${rect.top+remote.y*rect.height}px`;
+        const position=remoteCursorPosition(remote,$('#canvas'),rect);
+        cursor.style.left=position.left+'px'; cursor.style.top=position.top+'px';
       });
     });
   }
