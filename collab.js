@@ -10,11 +10,13 @@ window.collaboration=(()=>{
     '':'assets/cursors/default.png',ironclad:'assets/cursors/ironclad.png',
     necrobinder:'assets/cursors/necrobinder.png',silent:'assets/cursors/silent.png'
   };
+  const DRAWING_CURSOR_SOURCES={pen:'assets/drawing/pencil.png',erase:'assets/drawing/eraser.png'};
   let booted=false;
   const state={active:false,connected:false,code:'',participantId:'',token:'',hostId:'',
     participants:new Map(),baseBoard:null,inflight:null,saved:false,intentionalClose:false,
     reconnectUntil:0,reconnectTimer:null,
-    lastPointer:{x:null,y:null,boardX:null,boardY:null,anchor:null,pressed:false},remote:new Map()};
+    lastPointer:{x:null,y:null,boardX:null,boardY:null,anchor:null,pressed:false},remote:new Map(),
+    liveDrawings:new Map(),outgoingDrawing:null};
 
   function shareableImage(value){
     if(typeof value!=='string'||!value)return '';
@@ -96,6 +98,9 @@ window.collaboration=(()=>{
 
   function setConnection(connected){
     state.connected=connected;
+    if(!connected&&state.outgoingDrawing){
+      clearTimeout(state.outgoingDrawing.timer); state.outgoingDrawing=null;
+    }
     document.body.classList.toggle('collab-readonly',state.active&&!connected);
     $('#coopConnection').hidden=!state.active||connected;
     renderCoopUi();
@@ -156,11 +161,28 @@ window.collaboration=(()=>{
     state.hostId=message.hostId;
     state.participants=new Map((message.participants||[]).map(member=>[member.id,member]));
     for(const id of state.remote.keys())if(!state.participants.has(id))state.remote.delete(id);
+    for(const drawing of state.liveDrawings.values()){
+      if(!state.participants.get(drawing.participantId)?.connected)clearLiveDrawings(drawing.participantId);
+    }
     renderCoopUi(); renderRemotePresence();
   }
 
   function applyServerBoard(board){
-    S=clone(board); prepareState(); sel.clear(); lastClicked=null; closeInsp(); render();
+    S=clone(board); prepareState(); window.tierforgeDrawing?.restoreActiveStroke?.();
+    sel.clear(); lastClicked=null; closeInsp(); render();
+  }
+  function clearLiveDrawings(participantId){
+    let changed=false;
+    for(const [key,drawing] of state.liveDrawings)if(drawing.participantId===participantId){
+      clearTimeout(drawing.cleanupTimer);
+      state.liveDrawings.delete(key); changed=true;
+    }
+    const remote=state.remote.get(participantId); if(remote)remote.drawTool=null;
+    if(changed)scheduleDrawingRender();
+  }
+  function liveDrawTool(participantId){
+    return [...state.liveDrawings.values()].find(drawing=>
+      drawing.participantId===participantId&&!drawing.cleanupTimer)?.tool||null;
   }
   function receiveState(message){
     if(state.inflight&&message.actionId===state.inflight.id){
@@ -205,12 +227,33 @@ window.collaboration=(()=>{
         state.remote.set(message.participantId,{x:message.x,y:message.y,
           boardX:message.boardX,boardY:message.boardY,anchor:message.anchor||null,cursor:message.cursor||'',
           pressed:message.pressed===true,
+          drawTool:state.remote.get(message.participantId)?.drawTool||liveDrawTool(message.participantId),
           selection:message.selection||[]});
         renderRemotePresence();
       }
       return;
     }
-    if(message.type==='state'){receiveState(message);return;}
+    if(message.type==='drawing'){
+      if(message.participantId===state.participantId)return;
+      const key=`${message.participantId}:${message.id}`;
+      if(message.phase==='start'){
+        clearTimeout(state.liveDrawings.get(key)?.cleanupTimer);
+        state.liveDrawings.set(key,{participantId:message.participantId,subBoardId:message.subBoardId,
+          tool:message.tool,color:message.color,width:message.width,points:[...(message.points||[])]});
+        const remote=state.remote.get(message.participantId); if(remote)remote.drawTool=message.tool;
+      }else if(message.phase==='points'){
+        const drawing=state.liveDrawings.get(key);
+        if(drawing&&drawing.points.length<20000)drawing.points.push(...(message.points||[]).slice(0,20000-drawing.points.length));
+      }else if(message.phase==='end'){
+        const drawing=state.liveDrawings.get(key);
+        if(drawing)drawing.cleanupTimer=setTimeout(()=>{
+          state.liveDrawings.delete(key); scheduleDrawingRender();
+        },5000);
+        const remote=state.remote.get(message.participantId); if(remote)remote.drawTool=null;
+      }
+      scheduleDrawingRender(); renderRemotePresence(); return;
+    }
+    if(message.type==='state'){clearLiveDrawings(message.actorId);receiveState(message);return;}
     if(message.type==='conflict'){receiveConflict(message);return;}
     if(message.type==='undo-result'){toast(message.message||'Nothing to undo');return;}
     if(message.type==='error'){toast(message.error||'Co-op error');return;}
@@ -301,6 +344,36 @@ window.collaboration=(()=>{
     send({type:'cursor',...state.lastPointer,cursor,selection:[...sel]});
   }
   function cursorChanged(){selectionChanged();}
+  function flushDrawingPoints(){
+    const outgoing=state.outgoingDrawing;
+    if(!outgoing)return;
+    clearTimeout(outgoing.timer); outgoing.timer=null;
+    const points=outgoing.stroke.points.slice(outgoing.sentPoints);
+    for(let index=0;index<points.length;index+=256){
+      send({type:'drawing',phase:'points',id:outgoing.id,points:points.slice(index,index+256)});
+    }
+    outgoing.sentPoints=outgoing.stroke.points.length;
+  }
+  function drawingStarted(subBoardId,stroke){
+    if(!state.active||!state.connected)return;
+    const id=actionId(), point=stroke.points[0];
+    state.outgoingDrawing={id,stroke,sentPoints:1,timer:null};
+    send({type:'drawing',phase:'start',id,subBoardId,tool:stroke.tool,color:stroke.color,
+      width:stroke.width,points:[point]});
+  }
+  function drawingProgressed(stroke){
+    const outgoing=state.outgoingDrawing;
+    if(!outgoing||outgoing.stroke!==stroke||outgoing.timer)return;
+    outgoing.timer=setTimeout(flushDrawingPoints,32);
+  }
+  function drawingFinished(stroke){
+    const outgoing=state.outgoingDrawing;
+    if(!outgoing||outgoing.stroke!==stroke)return;
+    flushDrawingPoints(); send({type:'drawing',phase:'end',id:outgoing.id}); state.outgoingDrawing=null;
+  }
+  function liveDrawingStrokes(subBoardId){
+    return [...state.liveDrawings.values()].filter(drawing=>drawing.subBoardId===subBoardId);
+  }
   function pointerMoved(event){
     if(!state.active||!state.connected)return;
     const canvas=$('#canvas'),rect=canvas.getBoundingClientRect();
@@ -367,9 +440,11 @@ window.collaboration=(()=>{
       const position=remoteCursorPosition(remote,canvas,rect);
       cursor.style.left=position.left+'px'; cursor.style.top=position.top+'px';
       cursor.style.setProperty('--remote-color',member.color);
-      const source=REMOTE_CURSOR_SOURCES[remote.cursor]||REMOTE_CURSOR_SOURCES[''];
+      const drawTool=remote.drawTool||liveDrawTool(id);
+      const source=DRAWING_CURSOR_SOURCES[drawTool]||REMOTE_CURSOR_SOURCES[remote.cursor]||REMOTE_CURSOR_SOURCES[''];
       const image=cursor.querySelector('img'); if(image.getAttribute('src')!==source)image.src=source;
       cursor.querySelector('span').textContent=member.name;
+      cursor.classList.toggle('drawing-tool',!!drawTool);
       cursor.classList.toggle('clicking',remote.pressed===true);
     }
     $$('.remote-cursor',cursorLayer).forEach(cursor=>{
@@ -401,7 +476,10 @@ window.collaboration=(()=>{
     if(closeSocket){state.intentionalClose=true;state.socket?.close(1000,'Left session');}
     clearTimeout(state.reconnectTimer); forgetCredentials(); setSessionUrl('');
     state.active=false;state.connected=false;state.code='';state.participantId='';state.token='';
-    state.hostId='';state.participants.clear();state.remote.clear();state.baseBoard=null;state.inflight=null;
+    state.hostId='';state.participants.clear();state.remote.clear();
+    state.liveDrawings.forEach(drawing=>clearTimeout(drawing.cleanupTimer)); state.liveDrawings.clear();
+    if(state.outgoingDrawing)clearTimeout(state.outgoingDrawing.timer);
+    state.outgoingDrawing=null;state.baseBoard=null;state.inflight=null;
     document.documentElement.style.removeProperty('--selection-color');
     document.body.classList.remove('collab-readonly'); $('#coopConnection').hidden=true;
     $('#coopPresence').hidden=true; $('#coopCursors').replaceChildren(); renderCoopUi(); render();
@@ -447,7 +525,8 @@ window.collaboration=(()=>{
       else dlgCoop.showModal();
     }
   }
-  return {boot,handlePersist,undo:undoRemote,selectionChanged,cursorChanged,afterRender,viewChanged,isActive:()=>state.active,
+  return {boot,handlePersist,undo:undoRemote,selectionChanged,cursorChanged,afterRender,viewChanged,
+    drawingStarted,drawingProgressed,drawingFinished,liveDrawingStrokes,isActive:()=>state.active,
     isConnected:()=>state.connected};
 })();
 window.collaboration.boot();

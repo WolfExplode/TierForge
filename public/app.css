@@ -104,8 +104,8 @@ main.panning{cursor:grabbing}
 #drawingSurface{position:absolute;z-index:25;pointer-events:none;
   touch-action:none}
 body.draw-mode #drawingSurface{pointer-events:auto}
-body.draw-mode.draw-pen #drawingSurface{cursor:crosshair}
-body.draw-mode.draw-eraser #drawingSurface{cursor:cell}
+body.draw-mode,body.draw-mode *{cursor:none!important}
+body.draw-mode #customCursor{display:none}
 .draw-toolbar{position:absolute;z-index:38;right:14px;top:14px;display:flex;align-items:center;gap:4px;
   padding:5px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(7,9,12,.9);
   box-shadow:0 8px 28px rgba(0,0,0,.45);backdrop-filter:blur(8px)}
@@ -123,6 +123,10 @@ body.draw-mode.draw-eraser #drawingSurface{cursor:cell}
 #drawColor::-moz-color-swatch{border:0;border-radius:50%}
 #drawWidth{width:76px;padding:0;accent-color:var(--accent)}
 body.collab-readonly .draw-toolbar{pointer-events:none;opacity:.55}
+#drawingToolCursor{position:fixed;z-index:1001;left:0;top:0;width:0;height:0;pointer-events:none;will-change:transform}
+#drawingToolCursor img{position:absolute;left:0;bottom:0;width:36px;height:36px;object-fit:contain;
+  filter:invert(.95) drop-shadow(0 1px 1px #000)}
+#drawingToolCursor[hidden]{display:none}
 #eraserCursor{position:fixed;z-index:130;width:54px;height:54px;border:2px dashed #f3f6ff;
   border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);
   box-shadow:0 0 0 1px rgba(0,0,0,.72),0 0 10px rgba(0,0,0,.45)}
@@ -375,6 +379,8 @@ body.collab-readonly #btnSortPool,body.collab-readonly #title,body.collab-readon
     drop-shadow(.6px -.6px 0 var(--remote-color)) drop-shadow(-.6px .6px 0 var(--remote-color)) drop-shadow(0 2px 2px #000)}
 .remote-cursor.custom.clicking img{transform:rotate(3deg) scale(.9)}
 .remote-cursor.custom span{margin:25px 0 0 -4px}
+.remote-cursor.custom.drawing-tool img{transform:translateY(-100%);filter:invert(.95) drop-shadow(0 1px 1px #000)}
+.remote-cursor.custom.drawing-tool.clicking img{transform:translateY(-100%) rotate(3deg) scale(.9)}
 body.custom-cursor,body.custom-cursor *{cursor:none!important}
 #customCursor{position:fixed;z-index:1000;left:0;top:0;width:0;height:0;pointer-events:none;will-change:transform}
 #customCursor[hidden]{display:none}

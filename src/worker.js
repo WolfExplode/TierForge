@@ -46,6 +46,28 @@ export function sanitizeSharedBoard(input) {
   return board;
 }
 
+function drawingPoint(value) {
+  const x = Number(value?.x), y = Number(value?.y);
+  return Number.isFinite(x) && Number.isFinite(y)
+    ? { x: Math.max(-10000, Math.min(10000, x)), y: Math.max(-10000, Math.min(10000, y)) } : null;
+}
+export function sanitizeLiveDrawingMessage(message) {
+  const phase = ['start', 'points', 'end'].includes(message?.phase) ? message.phase : null;
+  const id = typeof message?.id === 'string' ? message.id.slice(0, 128) : '';
+  if (!phase || !id) return null;
+  if (phase === 'end') return { phase, id };
+  const limit = phase === 'start' ? 1 : 256;
+  const points = Array.isArray(message.points) ? message.points.slice(0, limit).map(drawingPoint).filter(Boolean) : [];
+  if (!points.length) return null;
+  if (phase === 'points') return { phase, id, points };
+  const subBoardId = typeof message.subBoardId === 'string' ? message.subBoardId.slice(0, 128) : '';
+  const tool = ['pen', 'erase'].includes(message.tool) ? message.tool : null;
+  if (!subBoardId || !tool) return null;
+  const color = /^#[0-9a-f]{6}$/i.test(message.color) ? message.color : '#ff4d6d';
+  const width = Math.max(1, Math.min(200, Number(message.width) || 6));
+  return { phase, id, subBoardId, tool, color, width, points };
+}
+
 function pathValue(root, path) {
   let value = root;
   for (const part of path) {
@@ -205,6 +227,11 @@ export class TierForgeRoom {
         boardX: Number.isFinite(boardX) ? Math.max(-10000, Math.min(10000, boardX)) : null,
         boardY: Number.isFinite(boardY) ? Math.max(-10000, Math.min(10000, boardY)) : null,
         anchor, cursor, pressed, selection }, socket);
+      return;
+    }
+    if (message.type === 'drawing') {
+      const drawing = sanitizeLiveDrawingMessage(message);
+      if (drawing) this.broadcast({ type: 'drawing', participantId: participant.id, ...drawing }, socket);
       return;
     }
     if (message.type === 'rename') {

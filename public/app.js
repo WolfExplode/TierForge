@@ -1117,6 +1117,7 @@ function renderDrawing(){
   const {ctx,width,height,ratio}=drawingContext();
   ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,width*ratio,height*ratio); ctx.restore();
   currentDrawing().strokes.forEach(stroke=>paintStroke(ctx,stroke));
+  (window.collaboration?.liveDrawingStrokes?.(activeSubBoard()?.id)||[]).forEach(stroke=>paintStroke(ctx,stroke));
   $('#drawClear').disabled=!currentDrawing().strokes.length;
 }
 function scheduleDrawingRender(){
@@ -1124,6 +1125,15 @@ function scheduleDrawingRender(){
   drawingRenderFrame=requestAnimationFrame(renderDrawing);
 }
 function eraserDiameter(){ return Math.max(54,S.opts.drawWidth*7.5); }
+function drawingToolCursorSource(){ return `assets/drawing/${drawingMode==='erase'?'eraser':'pencil'}.png`; }
+function hideDrawingToolCursor(){ $('#drawingToolCursor').hidden=true; }
+function showDrawingToolCursor(event){
+  if(!drawingMode||event.pointerType==='touch')return hideDrawingToolCursor();
+  const cursor=$('#drawingToolCursor'), image=cursor.querySelector('img');
+  const source=drawingToolCursorSource();
+  if(image.getAttribute('src')!==source)image.src=source;
+  cursor.style.transform=`translate3d(${event.clientX}px,${event.clientY}px,0)`; cursor.hidden=false;
+}
 function hideEraserCursor(){ $('#eraserCursor').hidden=true; }
 function showEraserCursor(event){
   if(drawingMode!=='erase')return hideEraserCursor();
@@ -1142,6 +1152,8 @@ function setDrawingMode(mode){
   $('#drawPen').setAttribute('aria-pressed',String(drawingMode==='pen'));
   $('#drawEraser').setAttribute('aria-pressed',String(drawingMode==='erase'));
   $('#drawSettings').hidden=drawingMode!=='pen';
+  if(!drawingMode)hideDrawingToolCursor();
+  else $('#drawingToolCursor img').src=drawingToolCursorSource();
   if(drawingMode!=='erase')hideEraserCursor();
   if(drawingMode)closeInsp();
 }
@@ -1161,6 +1173,8 @@ function appendDrawingPoint(event){
 function finishDrawing(event){
   if(!drawingPointer||event.pointerId!==drawingPointer.pointerId)return;
   appendDrawingPoint(event);
+  window.collaboration?.drawingProgressed?.(drawingPointer.stroke);
+  window.collaboration?.drawingFinished?.(drawingPointer.stroke);
   const surface=$('#drawingSurface');
   if(surface.hasPointerCapture(event.pointerId))surface.releasePointerCapture(event.pointerId);
   drawingPointer=null; persist(); scheduleDrawingRender();
@@ -1179,6 +1193,9 @@ function finishDrawing(event){
   $('#drawWidth').oninput=e=>{ S.opts.drawWidth=Number(e.target.value); persist(); };
   toolbar.addEventListener('pointerdown',e=>e.stopPropagation());
   toolbar.addEventListener('click',e=>e.stopPropagation());
+  document.addEventListener('pointermove',showDrawingToolCursor,{passive:true});
+  document.addEventListener('pointerout',event=>{ if(!event.relatedTarget)hideDrawingToolCursor(); });
+  window.addEventListener('blur',hideDrawingToolCursor);
   surface.addEventListener('pointerdown',event=>{
     if(!drawingMode||(event.pointerType==='mouse'&&event.button!==0))return;
     showEraserCursor(event); event.preventDefault(); event.stopPropagation(); snapshot();
@@ -1186,13 +1203,15 @@ function finishDrawing(event){
       width:drawingMode==='erase'?Math.max(54,S.opts.drawWidth*7.5):S.opts.drawWidth,
       points:[drawingPoint(event)]};
     currentDrawing().strokes.push(stroke);
-    drawingPointer={pointerId:event.pointerId,stroke};
+    drawingPointer={pointerId:event.pointerId,stroke,subBoardId:activeSubBoard().id};
+    window.collaboration?.drawingStarted?.(drawingPointer.subBoardId,stroke);
     surface.setPointerCapture(event.pointerId); scheduleDrawingRender();
   });
   surface.addEventListener('pointermove',event=>{
     showEraserCursor(event);
     if(!drawingPointer)return; event.preventDefault();
     const events=event.getCoalescedEvents?.()||[event]; events.forEach(appendDrawingPoint);
+    window.collaboration?.drawingProgressed?.(drawingPointer.stroke);
   });
   surface.addEventListener('pointerenter',showEraserCursor);
   surface.addEventListener('pointerleave',hideEraserCursor);
@@ -1201,6 +1220,15 @@ function finishDrawing(event){
   surface.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
   new ResizeObserver(scheduleDrawingRender).observe($('#canvas'));
 })();
+window.tierforgeDrawing={
+  restoreActiveStroke(){
+    if(!drawingPointer)return;
+    const sub=S.subBoards?.find(item=>item.id===drawingPointer.subBoardId);
+    if(!sub){ drawingPointer=null; return; }
+    if(!sub.drawing.strokes.includes(drawingPointer.stroke))sub.drawing.strokes.push(drawingPointer.stroke);
+    scheduleDrawingRender();
+  }
+};
 
 /* ============================ CANVAS PAN/ZOOM ============================ */
 (()=>{

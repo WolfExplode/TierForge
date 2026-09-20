@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
-import { allowedImageHost, sanitizeSharedBoard } from '../src/worker.js';
+import { allowedImageHost, sanitizeLiveDrawingMessage, sanitizeSharedBoard, TierForgeRoom } from '../src/worker.js';
 await import('../png-metadata.js');
 
 for (const [name, minimum] of [['sts2-relics', 250], ['sts2-cards', 500]]) {
@@ -40,4 +40,26 @@ test('co-op boards keep shared images and replace local images with placeholders
   assert.equal(shared.items.catalog.img, 'Images/catalogs/game/item.png');
   assert.equal(shared.items.remote.img, 'https://example.com/item.png');
   assert.equal(board.items.local.img, 'tierforge-image:private.png');
+});
+
+test('live co-op drawing messages are bounded and sanitized', () => {
+  assert.deepEqual(sanitizeLiveDrawingMessage({phase:'start',id:'stroke-1',subBoardId:'main',tool:'erase',
+    color:'#AABBCC',width:999,points:[{x:12,y:34},{x:56,y:78}]}),
+  {phase:'start',id:'stroke-1',subBoardId:'main',tool:'erase',color:'#AABBCC',width:200,points:[{x:12,y:34}]});
+  assert.deepEqual(sanitizeLiveDrawingMessage({phase:'points',id:'stroke-1',points:[{x:-20000,y:20000},{x:'bad',y:1}]}),
+    {phase:'points',id:'stroke-1',points:[{x:-10000,y:10000}]});
+  assert.deepEqual(sanitizeLiveDrawingMessage({phase:'end',id:'stroke-1'}),{phase:'end',id:'stroke-1'});
+  assert.equal(sanitizeLiveDrawingMessage({phase:'start',id:'',points:[]}),null);
+});
+
+test('live co-op drawing is relayed without storing room state', async () => {
+  const sent=[];
+  const sender={deserializeAttachment:()=>({participantId:'one'}),send:()=>{}};
+  const peer={deserializeAttachment:()=>({participantId:'two'}),send:value=>sent.push(JSON.parse(value))};
+  const roomState={participants:{one:{id:'one'},two:{id:'two'}}};
+  const room=new TierForgeRoom({storage:{get:async()=>roomState},getWebSockets:()=>[sender,peer]});
+  await room.webSocketMessage(sender,JSON.stringify({type:'drawing',phase:'start',id:'stroke-1',
+    subBoardId:'main',tool:'pen',color:'#123456',width:8,points:[{x:10,y:20}]}));
+  assert.deepEqual(sent,[{type:'drawing',participantId:'one',phase:'start',id:'stroke-1',
+    subBoardId:'main',tool:'pen',color:'#123456',width:8,points:[{x:10,y:20}]}]);
 });
