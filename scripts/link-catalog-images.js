@@ -6,6 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const catalogs = [
   { id: 'sts2-cards', directory: 'Images/catalogs/slay-the-spire-2/cards' },
   { id: 'sts2-relics', directory: 'Images/catalogs/slay-the-spire-2/relics' },
+  { id: 'sts2-potions', directory: 'Images/catalogs/slay-the-spire-2/potions' },
 ];
 
 const slug = value => String(value || '').toLowerCase()

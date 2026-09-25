@@ -7,11 +7,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'catalogs');
 const sources = [
   ['sts2-relics', 'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Relics_List'],
+  ['sts2-potions', 'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Potions_List'],
   ['sts2-cards', 'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Cards_List'],
 ];
 
+// Optional catalog ids on the command line refresh only those catalogs.
+const only = process.argv.slice(2);
 await mkdir(output, { recursive: true });
-for (const [id, url] of sources) {
+for (const [id, url] of sources.filter(([id]) => !only.length || only.includes(id))) {
   process.stdout.write(`Refreshing ${id}...\n`);
   const pack = await importSource(url, {
     root, images: true, onlyMissing: true,

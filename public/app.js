@@ -1274,22 +1274,46 @@ window.tierforgeDrawing={
   fitObserver.observe(main); fitObserver.observe(canvas);
   requestAnimationFrame(fitToViewport);
 
-  let dragging=false, lastX=0, lastY=0;
-  main.addEventListener('mousedown',e=>{
-    if(e.button!==1) return;
-    e.preventDefault();
+  // Middle button pans from anywhere. The primary button pans only from empty
+  // space, and only once it moves past the drag threshold so a plain click still
+  // clears the selection.
+  const PAN_BLOCKERS='.item,.tlabel,button,input,textarea,select,a,label,[contenteditable],#drawToolbar';
+  let dragging=false, panButton=-1, pendingPan=null, lastX=0, lastY=0;
+  const startPan=(button,x,y)=>{
     userAdjusted=true;
-    dragging=true; lastX=e.clientX; lastY=e.clientY; main.classList.add('panning');
+    dragging=true; panButton=button; lastX=x; lastY=y; main.classList.add('panning');
+  };
+  main.addEventListener('mousedown',e=>{
+    if(e.button===1){ e.preventDefault(); startPan(1,e.clientX,e.clientY); return; }
+    if(e.button!==0||dragging||document.body.classList.contains('draw-mode')
+      ||e.target.closest(PAN_BLOCKERS))return;
+    // Suppress text selection; blur so an in-progress edit still commits.
+    e.preventDefault(); document.activeElement?.blur?.();
+    pendingPan={x:e.clientX,y:e.clientY};
   });
   window.addEventListener('mousemove',e=>{
+    if(pendingPan){
+      if(!(e.buttons&1)){ pendingPan=null; return; }
+      if(Math.hypot(e.clientX-pendingPan.x,e.clientY-pendingPan.y)<DRAG_START_DISTANCE)return;
+      startPan(0,pendingPan.x,pendingPan.y); pendingPan=null;
+    }
     if(!dragging) return;
     view.x+=e.clientX-lastX; view.y+=e.clientY-lastY;
     lastX=e.clientX; lastY=e.clientY; apply();
   });
   window.addEventListener('mouseup',e=>{
-    if(e.button!==1||!dragging) return;
+    if(e.button===0)pendingPan=null;
+    if(!dragging||e.button!==panButton) return;
     dragging=false; main.classList.remove('panning');
+    // A primary-button pan shouldn't also count as a click that clears the selection.
+    // The click fires right after this mouseup, if at all, so drop the guard next tick.
+    if(panButton===0){
+      const swallow=ev=>ev.stopPropagation();
+      window.addEventListener('click',swallow,{capture:true,once:true});
+      setTimeout(()=>window.removeEventListener('click',swallow,{capture:true}),0);
+    }
   });
+  window.addEventListener('blur',()=>{ pendingPan=null; dragging=false; main.classList.remove('panning'); });
 
   main.addEventListener('wheel',e=>{
     e.preventDefault();
@@ -1496,6 +1520,18 @@ async function refreshHelperState(){
 }
 $('#btnExport').onclick=()=>{ resetExportDialog(); dlgExport.showModal(); };
 $('#btnBoards').onclick=()=>{ renderBoards(); dlgBoards.showModal(); };
+// Clicking the backdrop closes a modal. Both press and release must land outside the
+// dialog box, so a text selection dragged out of the dialog doesn't dismiss it.
+$$('dialog').forEach(dialog=>{
+  const outside=e=>{ const r=dialog.getBoundingClientRect();
+    return e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom; };
+  let pressedOutside=false;
+  dialog.addEventListener('pointerdown',e=>{ pressedOutside=e.target===dialog&&outside(e); });
+  dialog.addEventListener('click',e=>{
+    if(pressedOutside&&e.target===dialog&&outside(e))dialog.close();
+    pressedOutside=false;
+  });
+});
 $$('.tabs button').forEach(b=>b.onclick=()=>{ $$('.tabs button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); $$('.tabpane').forEach(p=>p.classList.remove('on'));
   $('#tab-'+b.dataset.tab).classList.add('on'); });
@@ -2015,6 +2051,9 @@ const GAME_SOURCES=[
   {id:'sts2-relics', name:'Slay the Spire 2',
    match:/\b(?:slay the spire (?:2|ii|two)|sts ?2)\b.*\brelics?\b|\brelics?\b.*\b(?:slay the spire (?:2|ii|two)|sts ?2)\b/,
    wiki:'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Relics_List', itemType:'relics'},
+  {id:'sts2-potions', name:'Slay the Spire 2',
+   match:/\b(?:slay the spire (?:2|ii|two)|sts ?2)\b.*\bpotions?\b|\bpotions?\b.*\b(?:slay the spire (?:2|ii|two)|sts ?2)\b/,
+   wiki:'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Potions_List', itemType:'potions'},
   {id:'sts2-cards', name:'Slay the Spire 2',
    match:/\bslay the spire (?:2|ii|two)\b|\bsts ?2\b/,
    wiki:'https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Cards_List', itemType:'cards'},
@@ -2044,7 +2083,7 @@ function renderGameSources(){
   const wrap=$('#gameSources'); if(!wrap)return;
   const detected=detectGameSource(S);
   wrap.innerHTML=GAME_SOURCES.map(g=>`
-    <div class="row"><button data-imp="${g.id}" class="${g===detected?'primary':'ghost'}">${g.itemType==='relics'?'Relics':'Cards'}</button></div>`).join('')+`
+    <div class="row"><button data-imp="${g.id}" class="${g===detected?'primary':'ghost'}">${g.itemType[0].toUpperCase()+g.itemType.slice(1)}</button></div>`).join('')+`
     <div class="row"><button data-relink-all class="ghost">Match images</button></div>`;
   $$('button[data-imp]',wrap).forEach(b=>b.onclick=()=>quickWikiImport(GAME_SOURCES.find(g=>g.id===b.dataset.imp)));
   $('[data-relink-all]',wrap).onclick=()=>relinkItems();
@@ -2219,7 +2258,7 @@ $('#btnFetch').onclick=async()=>{
   const url=raw.split('#')[0].replace(/^http:/,'https:');
   try{
     if(/slaythespire\.wiki\.gg\//i.test(url)){
-      const wikiItemType=/relics?_list/i.test(url)?'relics':'cards';
+      const wikiItemType=/relics?_list/i.test(url)?'relics':/potions?_list/i.test(url)?'potions':'cards';
       const gameSource=GAME_SOURCES.find(src=>src.itemType===wikiItemType);
       if(helperBase===null) helperBase=await findHelper();
       let pack;

@@ -4,7 +4,7 @@ import { access, readFile } from 'node:fs/promises';
 import { allowedImageHost, sanitizeLiveDrawingMessage, sanitizeSharedBoard, TierForgeRoom } from '../src/worker.js';
 await import('../png-metadata.js');
 
-for (const [name, minimum] of [['sts2-relics', 250], ['sts2-cards', 500]]) {
+for (const [name, minimum] of [['sts2-relics', 250], ['sts2-cards', 500], ['sts2-potions', 60]]) {
   test(`${name} bundled catalog has hosted images and remote fallbacks`, async () => {
     const catalog = JSON.parse(await readFile(new URL(`../catalogs/${name}.json`, import.meta.url)));
     assert.ok(catalog.items.length >= minimum);

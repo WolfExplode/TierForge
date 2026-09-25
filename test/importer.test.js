@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { originalWikiImageUrl, parseCharacters, parseTemplateCode, parseWikiCards, parseWikiRelics, prettyName,
-  selectNamedItems } from '../src/importer.js';
+import { originalWikiImageUrl, parseCharacters, parseTemplateCode, parseWikiCards, parseWikiPotions, parseWikiRelics,
+  prettyName, selectNamedItems, wikiItemType } from '../src/importer.js';
 
 test('prettyName derives a readable item name', () => {
   assert.equal(prettyName('ashenStrike_card.png'), 'Ashen Strike Card');
@@ -44,6 +44,23 @@ test('parseWikiRelics extracts relic metadata and original image URLs', () => {
   assert.deepEqual(relic.tags, ['Common', 'Any', 'Neow', 'Ancient', 'Draw', 'Magic']);
   assert.equal(relic.description, 'Draw 2 cards and gain 1 Energy.');
   assert.equal(relic.notes, '');
+});
+
+test('parseWikiPotions extracts potion metadata and original image URLs', () => {
+  const html = '<div class="potion-box" data-name="Block Potion" data-rarity="Common" data-character="Any" data-tags="Block">' +
+    '<span class="potion-image-wrap"><span class="img-base"><a href="/wiki/x"><img alt="StS2 BlockPotion.png" src="/images/thumb/StS2_BlockPotion.png/80px-StS2_BlockPotion.png"></a></span></span>' +
+    '<div class="potion-text"><div class="potion-meta">Common - Any</div><div class="potion-desc"><div class="potion-desc compendium-cell-desc">Gain <b>12</b> Block.</div></div></div></div>';
+  const [potion] = parseWikiPotions(html);
+  assert.equal(potion.name, 'Block Potion');
+  assert.equal(potion.src, 'https://slaythespire.wiki.gg/images/StS2_BlockPotion.png');
+  assert.deepEqual(potion.tags, ['Common', 'Any', 'Block']);
+  assert.equal(potion.description, 'Gain 12 Block.');
+});
+
+test('wikiItemType reads the list type from the URL', () => {
+  assert.equal(wikiItemType('https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Relics_List'), 'relic');
+  assert.equal(wikiItemType('https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Potions_List'), 'potion');
+  assert.equal(wikiItemType('https://slaythespire.wiki.gg/wiki/Slay_the_Spire_2:Cards_List'), 'card');
 });
 
 test('named item selection is punctuation-insensitive and optional', () => {

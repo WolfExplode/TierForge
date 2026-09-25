@@ -220,11 +220,13 @@ export function parseWikiCards(page) {
   return parseWikiItems(page, 'card');
 }
 
-/** Parse either of the STS2 compendium list layouts. Cards and relics share
- * their data attributes and image markup, while their description wrappers
- * differ slightly. */
+const WIKI_DESCRIPTION_CLASSES = { card: 'desc-base', relic: 'relic-desc', potion: 'potion-desc' };
+
+/** Parse any of the STS2 compendium list layouts. Cards, relics and potions
+ * share their data attributes and image markup, while their description
+ * wrappers differ slightly. */
 export function parseWikiItems(page, type) {
-  const boxClass = type === 'relic' ? 'relic-box' : 'card-box';
+  const boxClass = `${type}-box`;
   const cards = [];
   const seen = new Set();
   const matcher = new RegExp(`<div\\s+class="${boxClass}"([^>]*)>`, 'gi');
@@ -245,7 +247,7 @@ export function parseWikiItems(page, type) {
       attrs['ancient-upgrade'] === 'Yes' ? 'Ancient' : '',
       ...(attrs.tags || '').split(',').map(tag => tag.trim()),
     ].filter(Boolean))];
-    const descriptionClass = type === 'relic' ? 'relic-desc' : 'desc-base';
+    const descriptionClass = WIKI_DESCRIPTION_CLASSES[type];
     let description = wikiDescriptionText(new RegExp(`class="${descriptionClass}">(.*?)<\\/div>`, 'is')
       .exec(window)?.[1] || '');
     if (attrs.cost) description = `Cost ${attrs.cost}. ${description}`.trim();
@@ -259,6 +261,17 @@ export function parseWikiItems(page, type) {
 
 export function parseWikiRelics(page) {
   return parseWikiItems(page, 'relic');
+}
+
+export function parseWikiPotions(page) {
+  return parseWikiItems(page, 'potion');
+}
+
+/** The wiki list a URL names ("…:Relics_List" → relic). Cards are the default. */
+export function wikiItemType(source) {
+  const pathname = new URL(source).pathname;
+  return ['relic', 'potion'].find(type => new RegExp(`(?:^|[_:/-])${type}s?(?:[_:/-]|$)`, 'i').test(pathname))
+    || 'card';
 }
 
 const normalizedItemName = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -369,21 +382,21 @@ export async function importSource(url, options = {}) {
   if (/slaythespire\.wiki\.gg/i.test(source)) {
     log('Reading wiki page...');
     const page = await fetchPage(source, log);
-    const isRelicList = /(?:^|[_:/-])relics?(?:[_:/-]|$)/i.test(new URL(source).pathname);
-    const wikiItems = isRelicList ? parseWikiRelics(page) : parseWikiCards(page);
-    const itemType = isRelicList ? 'relics' : 'cards';
+    const type = wikiItemType(source);
+    const itemType = `${type}s`;
+    const wikiItems = parseWikiItems(page, type);
     if (!wikiItems.length) throw new Error(`no ${itemType} found - the wiki layout may have changed`);
     const cards = selectNamedItems(wikiItems, options.names);
     log(Array.isArray(options.names)
       ? `Found ${wikiItems.length} wiki ${itemType}; ${cards.length} match the current board`
       : `Found ${cards.length} ${itemType}`);
     await materializeImages(cards, mode, {
-      directory: path.join(options.root, 'Images', 'catalogs', 'slay-the-spire-2', isRelicList ? 'relics' : 'cards'),
-      linkPrefix: `Images/catalogs/slay-the-spire-2/${isRelicList ? 'relics' : 'cards'}`,
+      directory: path.join(options.root, 'Images', 'catalogs', 'slay-the-spire-2', itemType),
+      linkPrefix: `Images/catalogs/slay-the-spire-2/${itemType}`,
       onlyMissing: options.onlyMissing,
     }, log);
     const title = decodeHtml(/<title>([^<]*)<\/title>/i.exec(page)?.[1] || '').trim()
-      .replace(/\s*[|–-]\s*Slay the Spire 2.*$/i, '').trim() || `Slay the Spire 2 ${isRelicList ? 'Relics' : 'Cards'}`;
+      .replace(/\s*[|–-]\s*Slay the Spire 2.*$/i, '').trim() || `Slay the Spire 2 ${itemType[0].toUpperCase()}${itemType.slice(1)}`;
     return { v: 1, title, source, tiers: [...'SABCDF'].map((label, index) => ({
       label, color: TM_COLORS[index], items: [],
     })), pool: cards.map(card => card.key), items: cards.map(card => ({
