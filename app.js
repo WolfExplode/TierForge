@@ -1318,6 +1318,7 @@ $('#btnResetBoard').onclick=()=>{
     setBoardResetArmed(true); return;
   }
   snapshot();
+  leaveBoard();
   S=blankState();
   prepareState();
   sel.clear(); lastClicked=null; compareSubBoardId=null; comparisonState=null;
@@ -1463,6 +1464,21 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#settingsWrap'))$('
   document.addEventListener('pointerover',e=>{
     if(document.body.classList.contains('custom-cursor')&&e.pointerType!=='touch')overlay.hidden=false;
   });
+  // Modal dialogs render in the top layer, above any z-index, so the cursor overlays
+  // ride along inside the topmost open modal to stay visible.
+  const overlays=[overlay,$('#coopCursors')], modals=[];
+  const hostOverlays=()=>{
+    const host=modals.at(-1)||document.body;
+    overlays.forEach(layer=>{ if(layer.parentElement!==host)host.appendChild(layer); });
+  };
+  new MutationObserver(records=>{
+    records.forEach(({target})=>{
+      const index=modals.indexOf(target);
+      if(index>=0)modals.splice(index,1);
+      if(target.open&&target.matches(':modal'))modals.push(target);
+    });
+    hostOverlays();
+  }).observe(document.body,{subtree:true,attributes:true,attributeFilter:['open']});
   applyCursor(storedCursor());
   prepareCursorIcons();
 })();
@@ -1676,6 +1692,55 @@ async function saveBoard(name){
   storeActiveSubBoard();
   return storeBoard(name,S);
 }
+/* Browser history for whole-board switches, so back/forward (and mouse side buttons)
+   move between previously opened boards. Each entry remembers the board as it was
+   left, including unsaved edits; after a reload it falls back to the saved board. */
+const BOARD_HISTORY_STASH_LIMIT=20;
+const boardHistoryStash=new Map();
+let boardHistoryEntry=null, ignoreNextBoardPop=false;
+function boardHistoryState(entry){ return {...(history.state||{}),tierforgeBoard:entry}; }
+function initBoardHistory(){
+  const existing=history.state?.tierforgeBoard;
+  boardHistoryEntry=existing||{key:uid(),idx:0,name:null};
+  if(!existing)history.replaceState(boardHistoryState(boardHistoryEntry),'');
+}
+function stashCurrentBoard(){
+  if(!boardHistoryEntry)return;
+  storeActiveSubBoard();
+  boardHistoryStash.delete(boardHistoryEntry.key);
+  boardHistoryStash.set(boardHistoryEntry.key,JSON.stringify(S));
+  while(boardHistoryStash.size>BOARD_HISTORY_STASH_LIMIT)boardHistoryStash.delete(boardHistoryStash.keys().next().value);
+}
+/** Call just before S is replaced by a different board. */
+function leaveBoard(savedName=null){
+  if(!boardHistoryEntry)return;
+  stashCurrentBoard();
+  if(!boardHistoryEntry.name&&S.title){ // lets the entry reopen its saved copy after a reload
+    boardHistoryEntry={...boardHistoryEntry,name:S.title};
+    history.replaceState(boardHistoryState(boardHistoryEntry),'');
+  }
+  boardHistoryEntry={key:uid(),idx:boardHistoryEntry.idx+1,name:savedName};
+  history.pushState(boardHistoryState(boardHistoryEntry),'');
+}
+window.addEventListener('popstate',async e=>{
+  const entry=e.state?.tierforgeBoard;
+  if(ignoreNextBoardPop){ ignoreNextBoardPop=false; return; }
+  if(!entry||!boardHistoryEntry||entry.key===boardHistoryEntry.key)return;
+  if(window.collaboration?.isActive?.()){
+    ignoreNextBoardPop=true; history.go(boardHistoryEntry.idx-entry.idx);
+    return toast('Leave co-op before switching boards');
+  }
+  stashCurrentBoard();
+  boardHistoryEntry=entry;
+  let board=null;
+  const stashed=boardHistoryStash.get(entry.key);
+  if(stashed)board=JSON.parse(stashed);
+  else if(entry.name){ try{ board=await loadStoredBoard(entry.name); }catch(e){} }
+  if(boardHistoryEntry!==entry)return; // another navigation happened while loading
+  if(!board?.tiers)return toast('That board is no longer available');
+  $$('dialog[open]').forEach(dialog=>dialog.close());
+  snapshot(); S=board; prepareState(); sel.clear(); lastClicked=null; closeInsp(); persist(); render();
+});
 async function renderBoards(){
   const wrap=$('#boardlist'); $('#boardname').value=S.title;
   let list=[];
@@ -1691,7 +1756,7 @@ async function renderBoards(){
   $$('button[data-load]',wrap).forEach(x=>x.onclick=async()=>{
     if(window.collaboration?.isActive?.())return toast('Leave co-op before loading another saved board');
     try{ const board=await loadStoredBoard(x.dataset.load);
-      snapshot(); S=board; prepareState(); sel.clear(); persist(); render(); dlgBoards.close(); }
+      snapshot(); leaveBoard(x.dataset.load); S=board; prepareState(); sel.clear(); persist(); render(); dlgBoards.close(); }
     catch(e){ toast('Could not load that board'); } });
   $$('button[data-overwrite]',wrap).forEach(x=>x.onclick=async()=>{
     if(x.dataset.confirm!=='1'){
@@ -1847,7 +1912,7 @@ function parseTemplateCode(html){
 }
 
 function buildFrom(chars,tc,merge,meta){
-  if(!merge) S=blankState();
+  if(!merge){ leaveBoard(); S=blankState(); }
   S.source=meta.url||S.source;
   if(meta.title&&!merge) S.title=meta.title;
   const byKey={};
@@ -2167,7 +2232,7 @@ $('#btnFetch').onclick=async()=>{
       }
       if($('#mergeimp').checked){ snapshot(); const added=mergeItemsIntoPool(pack);
         log(`Merged ${added} new ${wikiItemType} into the pool (${pack.items.length-added} already present).`); }
-      else { S=normalize(pack); log(`Imported ${pack.items.length} ${wikiItemType}.`); }
+      else { leaveBoard(); S=normalize(pack); log(`Imported ${pack.items.length} ${wikiItemType}.`); }
       sel.clear(); persist(); render(); clearLog(); dlgImport.close();
       return toast('Imported '+pack.items.length+' '+wikiItemType);
     }
@@ -2188,7 +2253,7 @@ $('#btnFetch').onclick=async()=>{
     if(helperBase){
       log('Using local runtime at '+helperBase+' …');
       const pack=await importViaHelper(helperBase,url,$('#embedimgs').checked,log,$('#localimgs').checked);
-      S=normalize(pack); sel.clear(); persist(); render(); await autoRelinkImportedItems();
+      leaveBoard(); S=normalize(pack); sel.clear(); persist(); render(); await autoRelinkImportedItems();
       log(`Imported ${pack.items.length} items into ${pack.tiers.length} tiers.`);
       return toast('Imported '+pack.items.length+' items');
     }
@@ -2331,7 +2396,7 @@ function loadJSON(text,quiet){
     return toast(`Imported ${o.chars.length} items`+(tc?` into ${tc.tiers.length} tiers`:''));
   }
   if(o.items&&o.tiers){ // full board / import pack
-    S=normalize(o); prepareState(); sel.clear(); persist(); render(); dlgImport.close();
+    leaveBoard(); S=normalize(o); prepareState(); sel.clear(); persist(); render(); dlgImport.close();
     return toast('Loaded "'+S.title+'"');
   }
   toast('Unrecognised JSON shape');
@@ -2584,6 +2649,7 @@ function wrapText(ctx,text,x,y,maxw,lh){
   const hadSize=Object.prototype.hasOwnProperty.call(S.opts||{},'size');
   prepareState();
   if(hadSize)persist();
+  initBoardHistory();
   render();
   await window.collaboration?.boot?.();
   if(!helperBase&&!hasBrowserStorage)warnNoStorage();

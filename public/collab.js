@@ -121,7 +121,7 @@ window.collaboration=(()=>{
   function setSessionUrl(code){
     const url=new URL(location.href);
     if(code)url.searchParams.set('session',code); else url.searchParams.delete('session');
-    history.replaceState(null,'',url);
+    history.replaceState(history.state,'',url);
   }
 
   function renderCoopUi(){
