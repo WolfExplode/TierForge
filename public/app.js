@@ -60,9 +60,9 @@ const DEFAULT_TIERS=[['S','#ff7f7f'],['A','#ffbf7f'],['B','#ffdf7f'],['C','#ffff
 const APP_PREFERENCES_KEY='tierforge:preferences';
 const LABEL_MODES=new Set(['find','show','hover']);
 const CURSORS={
-  ironclad:{name:'Ironclad',src:'assets/cursors/ironclad.png',hotspot:[2.5,.5]},
-  necrobinder:{name:'Necrobinder',src:'assets/cursors/necrobinder.png',hotspot:[5,2]},
-  silent:{name:'Silent',src:'assets/cursors/silent.png',hotspot:[4,1.5]}
+  ironclad:{name:'Ironclad',src:'assets/cursors/ironclad.png',hotspot:[0,0]},
+  necrobinder:{name:'Necrobinder',src:'assets/cursors/necrobinder.png',hotspot:[0,0]},
+  silent:{name:'Silent',src:'assets/cursors/silent.png',hotspot:[0,0]}
 };
 const DEFAULT_CURSOR_ICON='assets/cursors/default.png';
 const cursorIconSources=new Map();
@@ -2095,6 +2095,80 @@ function quickWikiImport(src){
   $('#localimgs').checked=!!helperBase; $('#embedimgs').checked=false;
   $('#btnFetch').click();
 }
+/* ============================ CATALOG PICKER ============================
+   Search the bundled catalogs and add individual entries to the pool, rather
+   than importing a whole list. Entries go through mergeItemsIntoPool, so an
+   item already on the board is never duplicated. */
+const catalogPicker={type:'all',chosen:new Map(),entries:null};
+const CATALOG_RESULT_LIMIT=240;
+function catalogEntries(){
+  if(!catalogPicker.entries)catalogPicker.entries=Promise.all(GAME_SOURCES.map(async src=>{
+    try{ return (await loadBundledCatalog(src)).items.map((it,i)=>({...it,key:`${src.id}:${i}`,itemType:src.itemType})); }
+    catch(e){ console.warn(`${src.itemType} catalog unavailable:`,e); return []; }
+  })).then(lists=>{ const all=lists.flat(); if(!all.length)catalogPicker.entries=null; return all; });
+  return catalogPicker.entries;
+}
+function boardImageKeys(){
+  const keys=new Set();
+  Object.values(S.items).forEach(it=>{ if(it.img)keys.add(it.img); if(it.src)keys.add(it.src); });
+  return keys;
+}
+async function renderCatalogPicker(){
+  const types=['all',...GAME_SOURCES.map(g=>g.itemType)];
+  $('#catalogTypes').innerHTML=types.map(t=>`<button type="button" role="radio" data-ctype="${t}"
+    aria-checked="${t===catalogPicker.type}" class="${t===catalogPicker.type?'primary':'ghost'}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('');
+  $$('button[data-ctype]',$('#catalogTypes')).forEach(b=>b.onclick=()=>{ catalogPicker.type=b.dataset.ctype; renderCatalogPicker(); });
+  const results=$('#catalogResults');
+  if(!catalogPicker.entries)results.innerHTML='<div class="muted">Loading catalogs…</div>';
+  const entries=await catalogEntries();
+  if(!entries.length){ results.innerHTML='<div class="muted">No catalogs could be loaded.</div>'; return updateCatalogStatus(0); }
+  const terms=$('#catalogQuery').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches=entries.filter(it=>(catalogPicker.type==='all'||it.itemType===catalogPicker.type)&&
+    terms.every(t=>[it.name,...(it.tags||[]),it.description].join(' ').toLowerCase().includes(t)));
+  const onBoard=boardImageKeys();
+  results.innerHTML=matches.slice(0,CATALOG_RESULT_LIMIT).map(it=>{
+    const present=onBoard.has(it.img||it.src);
+    return `<button type="button" class="catalog-entry${catalogPicker.chosen.has(it.key)?' chosen':''}${present?' present':''}"
+      data-ckey="${esc(it.key)}" title="${esc([it.name,(it.tags||[]).join(', '),it.description].filter(Boolean).join('\n'))}">
+      <img src="${esc(it.img||it.src)}" data-fallback="${esc(it.fallbackImg||'')}" alt="" loading="lazy">
+      <span class="catalog-name">${esc(it.name)}</span>
+      <small>${present?'On board':esc(it.itemType)}</small></button>`;
+  }).join('')||'<div class="muted">No matches.</div>';
+  $$('img[data-fallback]',results).forEach(img=>img.onerror=()=>{
+    const fallback=img.dataset.fallback; img.onerror=null; if(fallback)img.src=fallback; });
+  const byKey=new Map(entries.map(it=>[it.key,it]));
+  $$('.catalog-entry',results).forEach(b=>{
+    b.onclick=()=>{ const it=byKey.get(b.dataset.ckey);
+      if(catalogPicker.chosen.has(it.key))catalogPicker.chosen.delete(it.key); else catalogPicker.chosen.set(it.key,it);
+      b.classList.toggle('chosen',catalogPicker.chosen.has(it.key)); updateCatalogStatus(matches.length); };
+    b.ondblclick=()=>{ catalogPicker.chosen.set(b.dataset.ckey,byKey.get(b.dataset.ckey)); addChosenCatalogItems(); };
+  });
+  updateCatalogStatus(matches.length);
+}
+function updateCatalogStatus(matchCount){
+  const n=catalogPicker.chosen.size;
+  const shown=matchCount>CATALOG_RESULT_LIMIT?`Showing ${CATALOG_RESULT_LIMIT} of ${matchCount} — refine your search`:`${matchCount} match${matchCount===1?'':'es'}`;
+  $('#catalogStatus').textContent=n?`${shown} · ${n} selected`:shown;
+  $('#btnCatalogAdd').disabled=!n;
+  $('#btnCatalogAdd').textContent=n>1?`Add ${n} items`:'Add selected';
+}
+function addChosenCatalogItems(){
+  const items=[...catalogPicker.chosen.values()].map(({key,itemType,...it})=>it);
+  if(!items.length)return;
+  snapshot(); const added=mergeItemsIntoPool({items});
+  catalogPicker.chosen.clear(); persist(); render(); dlgCatalog.close();
+  toast(added?`Added ${added} item${added===1?'':'s'} to the pool`:'Already on the board');
+}
+$('#btnAddCatalog').onclick=()=>{
+  catalogPicker.chosen.clear(); $('#catalogQuery').value='';
+  const detected=detectGameSource(S); catalogPicker.type=detected?detected.itemType:'all';
+  dlgCatalog.showModal(); $('#catalogQuery').focus(); renderCatalogPicker();
+};
+let catalogQueryTimer=0;
+$('#catalogQuery').oninput=()=>{ clearTimeout(catalogQueryTimer); catalogQueryTimer=setTimeout(renderCatalogPicker,120); };
+$('#catalogQuery').onkeydown=e=>{ if(e.key==='Enter'&&catalogPicker.chosen.size){ e.preventDefault(); addChosenCatalogItems(); } };
+$('#btnCatalogAdd').onclick=addChosenCatalogItems;
+
 $('#embedimgs').onchange=()=>{ if($('#embedimgs').checked) $('#localimgs').checked=false; };
 $('#localimgs').onchange=()=>{ if($('#localimgs').checked) $('#embedimgs').checked=false; };
 

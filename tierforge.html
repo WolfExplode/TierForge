@@ -85,6 +85,7 @@
         <span id="poolcount" class="muted"></span>
         <div class="spacer"></div>
         <button id="btnSortPool" class="ghost">Sort A→Z</button>
+        <button id="btnAddCatalog" class="ghost">+ Add from catalog…</button>
         <button id="btnAddImgs" class="ghost">+ Add images…</button>
         <input id="fileinput" type="file" accept="image/*" multiple hidden>
       </div>
@@ -258,6 +259,23 @@
     <button id="coopEndCancel">Cancel</button>
     <button id="coopEndWithout" class="danger">End without saving</button>
     <button id="coopSaveEnd" class="primary">Save a copy and end</button>
+  </div>
+</dialog>
+
+<!-- ============ CATALOG PICKER ============ -->
+<dialog id="dlgCatalog">
+  <h3>Add from catalog</h3>
+  <div class="dbody">
+    <div class="catalog-controls">
+      <input id="catalogQuery" type="search" placeholder="Search name, tag, description…" spellcheck="false" autocomplete="off">
+      <div id="catalogTypes" class="catalog-types" role="radiogroup" aria-label="Catalog"></div>
+    </div>
+    <div id="catalogResults" class="catalog-results" aria-live="polite"></div>
+  </div>
+  <div class="dfoot">
+    <span id="catalogStatus" class="muted catalog-status"></span>
+    <button id="btnCatalogAdd" class="primary" disabled>Add selected</button>
+    <button onclick="dlgCatalog.close()">Close</button>
   </div>
 </dialog>
 
