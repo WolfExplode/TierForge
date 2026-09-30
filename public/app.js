@@ -1519,7 +1519,7 @@ async function refreshHelperState(){
     $('#localimgs').checked=false; }
 }
 $('#btnExport').onclick=()=>{ resetExportDialog(); dlgExport.showModal(); };
-$('#btnBoards').onclick=()=>{ renderBoards(); dlgBoards.showModal(); };
+$('#btnBoards').onclick=()=>{ $('#boardsearch').value=''; renderBoards(); dlgBoards.showModal(); };
 // Clicking the backdrop closes a modal. Both press and release must land outside the
 // dialog box, so a text selection dragged out of the dialog doesn't dismiss it.
 $$('dialog').forEach(dialog=>{
@@ -1781,13 +1781,15 @@ async function renderBoards(){
   const wrap=$('#boardlist'); $('#boardname').value=S.title;
   let list=[];
   try{ list=await listStoredBoards(); }catch(e){}
-  wrap.innerHTML=list.length?list.map(b=>`<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)">
+  wrap.innerHTML=list.length?list.map(b=>`<div class="row" data-board-row="${esc(b.name)}" style="padding:4px 0;border-bottom:1px solid var(--line)">
       <span data-board-label style="flex:1">${esc(b.name)}</span>
       <small>${new Date(b.mtime).toLocaleString()}</small>
       <button data-load="${esc(b.name)}">Load</button>
       <button data-overwrite="${esc(b.name)}" title="Click once to arm overwrite">Overwrite</button>
       <button class="danger" data-drop="${esc(b.name)}" title="Click once to arm deletion" aria-label="Delete board">✕</button></div>`).join('')
     :'<div class="muted">No saved boards yet.</div>';
+  if(list.length)wrap.insertAdjacentHTML('beforeend','<div class="muted" data-board-nomatch hidden>No matching boards.</div>');
+  filterBoards();
   $$('[data-board-label]',wrap).forEach(x=>x.ondblclick=()=>startInlineBoardRename(x));
   $$('button[data-load]',wrap).forEach(x=>x.onclick=async()=>{
     if(window.collaboration?.isActive?.())return toast('Leave co-op before loading another saved board');
@@ -1819,6 +1821,13 @@ async function renderBoards(){
     await removeStoredBoard(x.dataset.drop);
     renderBoards(); });
 }
+function filterBoards(){
+  const wrap=$('#boardlist'), q=$('#boardsearch').value.trim().toLowerCase();
+  const rows=$$('[data-board-row]',wrap); let shown=0;
+  rows.forEach(r=>{ const hit=!q||r.dataset.boardRow.toLowerCase().includes(q); r.hidden=!hit; if(hit)shown++; });
+  const none=$('[data-board-nomatch]',wrap); if(none)none.hidden=shown>0;
+}
+$('#boardsearch').oninput=filterBoards;
 function startInlineBoardRename(label){
   const oldName=label.textContent.trim();
   const input=document.createElement('input'); input.value=oldName; input.style.flex='1';
